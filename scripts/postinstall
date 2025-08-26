@@ -1,0 +1,68 @@
+#!/bin/bash
+
+# go-installapplications postinstall script
+# This script handles loading the LaunchDaemon and LaunchAgent after installation
+
+# Set strict error handling
+set -euo pipefail
+
+# Logging function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - go-installapplications postinstall: $1"
+    logger -t "go-installapplications-postinstall" "$1"
+}
+
+log "Starting go-installapplications postinstall"
+
+# Path to the installed binary
+BINARY_PATH="/Library/go-installapplications/go-installapplications"
+DAEMON_PLIST="/Library/LaunchDaemons/com.github.go-installapplications.daemon.plist"
+AGENT_PLIST="/Library/LaunchAgents/com.github.go-installapplications.agent.plist"
+
+# Ensure binary is executable
+if [[ -f "$BINARY_PATH" ]]; then
+    chmod +x "$BINARY_PATH"
+    log "Set executable permissions on $BINARY_PATH"
+else
+    log "ERROR: Binary not found at $BINARY_PATH"
+    exit 1
+fi
+
+# Ensure shared log directory exists and is writable for agent stdout/stderr
+LOG_DIR="/var/log/go-installapplications"
+mkdir -p "$LOG_DIR"
+# Use sticky bit so users cannot delete each other's files, but allow writes
+chmod 1777 "$LOG_DIR"
+chown root:wheel "$LOG_DIR"
+log "Ensured log directory $LOG_DIR with permissions 1777"
+
+# Load the LaunchDaemon (runs as root at boot)
+if [[ -f "$DAEMON_PLIST" ]]; then
+    # Unload first in case it's already loaded
+    launchctl bootout system "$DAEMON_PLIST" 2>/dev/null || true
+    
+    # Load the daemon
+    launchctl bootstrap system "$DAEMON_PLIST"
+    log "Loaded LaunchDaemon: com.github.go-installapplications.daemon"
+else
+    log "ERROR: LaunchDaemon plist not found at $DAEMON_PLIST"
+    exit 1
+fi
+
+# The LaunchAgent will be loaded automatically when users log in
+# due to its location in /Library/LaunchAgents/
+log "LaunchAgent will be automatically loaded for users at login"
+
+# Set proper permissions on all files
+chown -R root:wheel /Library/go-installapplications/
+chmod 755 /Library/go-installapplications/
+chmod 644 "$DAEMON_PLIST" "$AGENT_PLIST"
+
+# Create signal directory for proper phase coordination
+mkdir -p /var/tmp/go-installapplications
+chown root:wheel /var/tmp/go-installapplications
+chmod 755 /var/tmp/go-installapplications
+
+log "go-installapplications postinstall completed successfully"
+
+exit 0

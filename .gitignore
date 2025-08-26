@@ -1,0 +1,19 @@
+.DS_Store
+.idea
+.vscode
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.development
+.env.test
+.env.production
+
+# Build artifacts and test binaries
+go-installapplications
+go-installapplications-*
+build/
+*.pkg
+
+*.local.*

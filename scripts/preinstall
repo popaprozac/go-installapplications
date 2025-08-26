@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# go-installapplications preinstall script
+# This script handles cleanup of any existing installation
+
+# Set strict error handling
+set -euo pipefail
+
+# Logging function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - go-installapplications preinstall: $1"
+    logger -t "go-installapplications-preinstall" "$1"
+}
+
+log "Starting go-installapplications preinstall"
+
+DAEMON_PLIST="/Library/LaunchDaemons/com.github.go-installapplications.daemon.plist"
+AGENT_PLIST="/Library/LaunchAgents/com.github.go-installapplications.agent.plist"
+
+# Unload existing LaunchDaemon if present
+if [[ -f "$DAEMON_PLIST" ]]; then
+    log "Unloading existing LaunchDaemon"
+    launchctl bootout system "$DAEMON_PLIST" 2>/dev/null || true
+fi
+
+# Remove any existing agent for all users (they'll be reloaded automatically)
+log "Removing existing LaunchAgent for all users"
+for user_id in $(dscl . -list /Users UniqueID | awk '$2 >= 500 {print $2}'); do
+    launchctl bootout "gui/$user_id" "$AGENT_PLIST" 2>/dev/null || true
+done
+
+# Clean up any stale signal files
+if [[ -d "/var/tmp/go-installapplications" ]]; then
+    log "Cleaning up signal files"
+    rm -rf /var/tmp/go-installapplications/
+fi
+
+log "go-installapplications preinstall completed successfully"
+
+exit 0

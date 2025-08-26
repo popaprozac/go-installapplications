@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>PayloadType</key>
+            <string>com.github.go-installapplications</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+            <key>PayloadIdentifier</key>
+            <string>com.github.go-installapplications.example</string>
+            <key>PayloadDisplayName</key>
+            <string>go-installapplications Configuration</string>
+            <key>PayloadDescription</key>
+            <string>Example configuration for go-installapplications with all available options</string>
+            <key>PayloadOrganization</key>
+            <string>Your Organization</string>
+            
+            <!-- Bootstrap source options (choose one) -->
+            <!-- Option 1: Top-level embedded bootstrap (shared) -->
+            <!--
+            <key>bootstrap</key>
+            <dict>
+                <key>preflight</key>
+                <array>
+                    <dict>
+                        <key>name</key>
+                        <string>System Setup</string>
+                        <key>type</key>
+                        <string>rootscript</string>
+                        <key>url</key>
+                        <string>https://your-server.com/setup.sh</string>
+                        <key>file</key>
+                        <string>setup.sh</string>
+                        <key>hash</key>
+                        <string>sha256-abc123...</string>
+                        <key>fail_policy</key>
+                        <string>failure_is_not_an_option</string>
+                    </dict>
+                </array>
+                <key>setupassistant</key>
+                <array>
+                    <dict>
+                        <key>name</key>
+                        <string>Configuration Script</string>
+                        <key>type</key>
+                        <string>rootscript</string>
+                        <key>url</key>
+                        <string>https://your-server.com/config.sh</string>
+                        <key>file</key>
+                        <string>config.sh</string>
+                        <key>donotwait</key>
+                        <true/>
+                        <key>retries</key>
+                        <integer>3</integer>
+                        <key>retrywait</key>
+                        <integer>5</integer>
+                    </dict>
+                </array>
+                <key>userland</key>
+                <array>
+                    <dict>
+                        <key>name</key>
+                        <string>Your Application</string>
+                        <key>type</key>
+                        <string>package</string>
+                        <key>url</key>
+                        <string>https://downloads.your-app.com/mac_releases/your-app.pkg</string>
+                        <key>file</key>
+                        <string>your-app.pkg</string>
+                        <key>packageid</key>
+                        <string>com.your.app</string>
+                        <key>version</key>
+                        <string>1.0.0</string>
+                        <key>pkg_required</key>
+                        <true/>
+                        <key>fail_policy</key>
+                        <string>failure_is_not_an_option</string>
+                        <key>hash</key>
+                        <string>sha256-def456...</string>
+                    </dict>
+                    <dict>
+                        <key>name</key>
+                        <string>User Preferences</string>
+                        <key>type</key>
+                        <string>userscript</string>
+                        <key>url</key>
+                        <string>https://your-server.com/user-setup.sh</string>
+                        <key>file</key>
+                        <string>user-setup.sh</string>
+                        <key>fail_policy</key>
+                        <string>failable</string>
+                        <key>skip_if</key>
+                        <string>intel</string>
+                    </dict>
+                    <dict>
+                        <key>name</key>
+                        <string>Company Logo</string>
+                        <key>type</key>
+                        <string>userfile</string>
+                        <key>url</key>
+                        <string>https://your-server.com/logo.png</string>
+                        <key>file</key>
+                        <string>/Users/Shared/logo.png</string>
+                    </dict>
+                </array>
+            </dict>
+            -->
+            
+            <!-- Shared settings applied to all modes -->
+            <!-- Note: Agent mode uses only shared settings (no mode-specific overrides needed) -->
+            <key>shared</key>
+            <dict>
+                <!-- Option 2: Remote JSON URL in shared settings -->
+                <key>JSONURL</key>
+                <string>https://your-server.com/bootstrap.json</string>
+                
+                <!-- Core settings -->
+                <key>Debug</key>
+                <true/>
+                <key>Verbose</key>
+                <true/>
+                <key>DryRun</key>
+                <false/>
+                
+                <!-- Installation settings -->
+                <key>InstallPath</key>
+                <string>/Library/go-installapplications</string>
+                <key>Reboot</key>
+                <false/>
+                
+                <!-- Retry settings -->
+                <key>MaxRetries</key>
+                <integer>3</integer>
+                <key>RetryDelay</key>
+                <integer>5</integer>
+                
+                <!-- Cleanup settings -->
+                <key>CleanupOnFailure</key>
+                <true/>
+                <key>CleanupOnSuccess</key>
+                <true/>
+                <key>KeepFailedFiles</key>
+                <false/>
+                
+                <!-- Background process tracking -->
+                <key>TrackBackgroundProcesses</key>
+                <true/>
+                <key>BackgroundTimeout</key>
+                <integer>300</integer>
+                
+                <!-- Download settings -->
+                <key>DownloadMaxConcurrency</key>
+                <integer>4</integer>
+                
+                <!-- HTTP Authentication -->
+                <key>HTTPAuthUser</key>
+                <string>your-username</string>
+                <key>HTTPAuthPassword</key>
+                <string>your-password</string>
+                
+                <!-- HTTP Headers (dictionary format) -->
+                <key>HTTPHeaders</key>
+                <dict>
+                    <key>X-API-Key</key>
+                    <string>your-api-key</string>
+                    <key>User-Agent</key>
+                    <string>go-installapplications/1.0</string>
+                </dict>
+                
+                <!-- HTTP Headers (array format alternative) -->
+                <!--
+                <key>HTTPHeaders</key>
+                <array>
+                    <dict>
+                        <key>name</key>
+                        <string>X-API-Key</string>
+                        <key>value</key>
+                        <string>your-api-key</string>
+                    </dict>
+                    <dict>
+                        <key>name</key>
+                        <string>User-Agent</string>
+                        <key>value</key>
+                        <string>go-installapplications/1.0</string>
+                    </dict>
+                </array>
+                -->
+                
+                <!-- Convenience Authorization header -->
+                <key>HeaderAuthorization</key>
+                <string>Bearer your-token</string>
+                
+                <!-- Backwards compatibility -->
+                <key>FollowRedirects</key>
+                <false/>
+                <key>SkipValidation</key>
+                <false/>
+                <key>LaunchAgentIdentifier</key>
+                <string>com.github.go-installapplications.agent</string>
+                <key>LaunchDaemonIdentifier</key>
+                <string>com.github.go-installapplications.daemon</string>
+                
+                <!-- Logging settings -->
+                <key>LogFilePath</key>
+                <string>/var/log/go-installapplications/custom.log</string>
+                <key>RetainLogFiles</key>
+                <false/>
+            </dict>
+            
+            <!-- Mode-specific overrides -->
+            <key>daemon</key>
+            <dict>
+                <!-- Daemon-specific settings -->
+                <key>MaxRetries</key>
+                <integer>5</integer>
+                <key>WaitForAgentTimeout</key>
+                <integer>86400</integer>
+                <key>AgentRequestTimeout</key>
+                <integer>7200</integer>
+                <key>TrackBackgroundProcesses</key>
+                <true/>
+            </dict>
+            
+            <!-- Note: Agent mode does not require mode-specific overrides -->
+            <!-- The agent acts as an IPC server and uses shared settings -->
+            <!-- 
+            <key>agent</key>
+            <dict>
+            </dict> 
+            -->
+            
+            <key>standalone</key>
+            <dict>
+                <!-- Standalone-specific settings -->
+                <key>DryRun</key>
+                <false/>
+                <key>Reboot</key>
+                <true/>
+                <key>LogFilePath</key>
+                <string>/tmp/go-installapplications-standalone.log</string>
+                
+                <!-- Standalone can have its own bootstrap source -->
+                <!-- Option 3a: Different JSON URL for standalone testing -->
+                <!--
+                <key>JSONURL</key>
+                <string>https://your-test-server.com/test-bootstrap.json</string>
+                -->
+                
+                <!-- Option 3b: Embedded bootstrap for standalone testing -->
+                <!--
+                <key>bootstrap</key>
+                <dict>
+                    <key>userland</key>
+                    <array>
+                        <dict>
+                            <key>name</key>
+                            <string>Test Application</string>
+                            <key>type</key>
+                            <string>package</string>
+                            <key>url</key>
+                            <string>https://test-server.com/test-app.pkg</string>
+                            <key>file</key>
+                            <string>test-app.pkg</string>
+                            <key>packageid</key>
+                            <string>com.test.app</string>
+                            <key>version</key>
+                            <string>1.0.0</string>
+                        </dict>
+                    </array>
+                </dict>
+                -->
+            </dict>
+        </dict>
+    </array>
+    
+    <!-- Profile metadata -->
+    <key>PayloadRemovalDisallowed</key>
+    <false/>
+    <key>PayloadScope</key>
+    <string>System</string>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+    <key>PayloadIdentifier</key>
+    <string>com.github.go-installapplications.example</string>
+    <key>PayloadDisplayName</key>
+    <string>go-installapplications Configuration</string>
+    <key>PayloadDescription</key>
+    <string>Example configuration for go-installapplications</string>
+    <key>PayloadOrganization</key>
+    <string>Your Organization</string>
+</dict>
+</plist>

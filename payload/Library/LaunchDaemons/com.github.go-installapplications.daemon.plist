@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <dict>
+        <key>Label</key>
+        <string>com.github.go-installapplications.daemon</string>
+
+        <key>Program</key>
+        <string>/Library/go-installapplications/go-installapplications</string>
+
+        <key>ProgramArguments</key>
+        <array>
+            <string>/Library/go-installapplications/go-installapplications</string>
+            <string>--mode</string>
+            <string>daemon</string>
+            <!-- <string>--jsonurl</string> -->
+            <!-- <string>https://your-server.com/bootstrap.json</string> -->
+        </array>
+
+        <key>RunAtLoad</key>
+        <true />
+
+        <!-- Restart on failure, but not on successful completion -->
+        <key>KeepAlive</key>
+        <dict>
+            <key>SuccessfulExit</key>
+            <false />
+        </dict>
+
+        <!-- Wait between restart attempts -->
+        <key>ThrottleInterval</key>
+        <integer>30</integer>
+
+        <!-- 10 minutes -->
+        <!-- <key>TimeOut</key> -->
+        <!-- <integer>600</integer> -->
+
+        <key>StandardOutPath</key>
+        <string>/var/log/go-installapplications/go-installapplications.daemon.log</string>
+
+        <key>StandardErrorPath</key>
+        <string>/var/log/go-installapplications/go-installapplications.daemon.log</string>
+    </dict>
+</plist>
