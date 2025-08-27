@@ -21,7 +21,7 @@ func startAgentIPCServer(logger *utils.Logger, handler func(req ipc.RPCRequest) 
 	}
 
 	// Determine UID to namespace the socket
-	uid, err := getConsoleUserUID()
+	uid, err := utils.GetConsoleUserUID()
 	if err != nil {
 		return "", fmt.Errorf("failed to get console user uid: %w", err)
 	}
@@ -79,15 +79,4 @@ func startAgentIPCServer(logger *utils.Logger, handler func(req ipc.RPCRequest) 
 	}()
 
 	return sockPath, nil
-}
-
-// getConsoleUserUID returns the current GUI console user UID for namespacing the socket.
-func getConsoleUserUID() (string, error) {
-	// Delegate to script executor method convention: stat -f %u /dev/console
-	// Duplicate small helper to avoid import cycle
-	out, err := utils.RunCommandCapture([]string{"stat", "-f", "%u", "/dev/console"})
-	if err != nil {
-		return "", err
-	}
-	return out, nil
 }

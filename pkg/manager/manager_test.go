@@ -37,6 +37,13 @@ func (f *fakeInstaller) ExecuteScript(scriptPath, scriptType string, doNotWait b
 	}
 	return nil
 }
+func (f *fakeInstaller) ExecuteScriptForPreflight(scriptPath, scriptType string, doNotWait bool, track bool) error {
+	f.scripts++
+	if scriptPath == "fail.sh" {
+		return errors.New("boom")
+	}
+	return nil
+}
 func (f *fakeInstaller) PlaceFile(filePath, fileType string) error                { return nil }
 func (f *fakeInstaller) WaitForBackgroundProcesses(timeout time.Duration) []error { return nil }
 func (f *fakeInstaller) GetBackgroundProcessCount() int                           { return 0 }

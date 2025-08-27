@@ -35,6 +35,11 @@ func (m *Manager) ProcessItems(items []config.Item, phaseName string) error {
 		return nil
 	}
 
+	// Validate phase restrictions
+	if err := m.validatePhaseRestrictions(items, phaseName); err != nil {
+		return err
+	}
+
 	m.logger.Info("=== Processing %s phase ===", phaseName)
 
 	// Filter items based on skip_if criteria
@@ -115,90 +120,33 @@ func (m *Manager) ProcessItems(items []config.Item, phaseName string) error {
 
 		switch item.Type {
 		case "package":
-			// Check pkg_required before installation
-			if item.PkgRequired {
-				m.logger.Debug("Checking if package %s is already installed (pkg_required=true)", item.Name)
-				isInstalled, err := utils.CheckPackageReceipt(item.PackageID, item.Version, m.logger)
-				if err != nil {
-					if shouldStopOnError := m.handleItemError(item, err, "package receipt check"); shouldStopOnError {
-						return fmt.Errorf("failed to check package receipt for %s: %w", item.Name, err)
-					}
-					continue
-				}
-				if isInstalled {
-					m.logger.Info("⏭️  Package %s already installed - skipping", item.Name)
-					continue
-				}
-				m.logger.Debug("Package %s not installed or version mismatch - proceeding with installation", item.Name)
+			if err := m.handlePackageInstallation(item); err != nil {
+				return err
 			}
-
-			err := m.installer.InstallPackage(item.File, "/")
-			if err != nil {
-				if shouldStopOnError := m.handleItemError(item, err, "package installation"); shouldStopOnError {
-					return fmt.Errorf("failed to install package %s: %w", item.Name, err)
-				}
-				continue
-			}
-			m.logger.Info("✅ Package installed: %s", item.Name)
-			// On success, we can mark the file as preserved for now; cleanup-all will remove it later if enabled
 
 		case "rootscript":
-			err := m.installer.ExecuteScript(item.File, "rootscript", item.DoNotWait, m.config.TrackBackgroundProcesses)
-			if err != nil {
-				if shouldStopOnError := m.handleItemError(item, err, "script execution"); shouldStopOnError {
-					return fmt.Errorf("failed to execute root script %s: %w", item.Name, err)
-				}
-				continue
-			}
-			if item.DoNotWait {
-				if m.config.TrackBackgroundProcesses {
-					backgroundProcessCount++
-					m.logger.Info("✅ Root script started in background: %s", item.Name)
-				} else {
-					m.logger.Info("✅ Root script started (fire-and-forget): %s", item.Name)
-				}
+			if phaseName == "preflight" {
+				return m.handlePreflightScript(item)
 			} else {
-				m.logger.Info("✅ Root script executed: %s", item.Name)
+				if err := m.handleRootScript(item, &backgroundProcessCount); err != nil {
+					return err
+				}
 			}
 
 		case "userscript":
-			err := m.installer.ExecuteScript(item.File, "userscript", item.DoNotWait, m.config.TrackBackgroundProcesses)
-			if err != nil {
-				if shouldStopOnError := m.handleItemError(item, err, "script execution"); shouldStopOnError {
-					return fmt.Errorf("failed to execute user script %s: %w", item.Name, err)
-				}
-				continue
-			}
-			if item.DoNotWait {
-				if m.config.TrackBackgroundProcesses {
-					backgroundProcessCount++
-					m.logger.Info("✅ User script started in background: %s", item.Name)
-				} else {
-					m.logger.Info("✅ User script started (fire-and-forget): %s", item.Name)
-				}
-			} else {
-				m.logger.Info("✅ User script executed: %s", item.Name)
+			if err := m.handleUserScript(item, &backgroundProcessCount); err != nil {
+				return err
 			}
 
 		case "rootfile":
-			err := m.installer.PlaceFile(item.File, "rootfile")
-			if err != nil {
-				if shouldStopOnError := m.handleItemError(item, err, "file placement"); shouldStopOnError {
-					return fmt.Errorf("failed to place root file %s: %w", item.Name, err)
-				}
-				continue
+			if err := m.handleFilePlacement(item, "rootfile"); err != nil {
+				return err
 			}
-			m.logger.Info("✅ Root file placed: %s", item.Name)
 
 		case "userfile":
-			err := m.installer.PlaceFile(item.File, "userfile")
-			if err != nil {
-				if shouldStopOnError := m.handleItemError(item, err, "file placement"); shouldStopOnError {
-					return fmt.Errorf("failed to place user file %s: %w", item.Name, err)
-				}
-				continue
+			if err := m.handleFilePlacement(item, "userfile"); err != nil {
+				return err
 			}
-			m.logger.Info("✅ User file placed: %s", item.Name)
 
 		default:
 			m.logger.Info("⚠️  Unknown item type: %s for %s", item.Type, item.Name)
@@ -233,6 +181,142 @@ func (m *Manager) ProcessItems(items []config.Item, phaseName string) error {
 	return nil
 }
 
+// handleRootScript handles root script execution (non-preflight)
+func (m *Manager) handleRootScript(item config.Item, backgroundProcessCount *int) error {
+	// Normal script execution for non-preflight phases
+	err := m.installer.ExecuteScript(item.File, "rootscript", item.DoNotWait, m.config.TrackBackgroundProcesses)
+	if err != nil {
+		// Normal error handling for non-preflight phases
+		if shouldStopOnError := m.handleItemError(item, err, "script execution"); shouldStopOnError {
+			return fmt.Errorf("failed to execute root script %s: %w", item.Name, err)
+		}
+		return nil // Continue with next item
+	}
+
+	// Log success based on execution mode
+	if item.DoNotWait {
+		if m.config.TrackBackgroundProcesses {
+			*backgroundProcessCount++
+			m.logger.Info("✅ Root script started in background: %s", item.Name)
+		} else {
+			m.logger.Info("✅ Root script started (fire-and-forget): %s", item.Name)
+		}
+	} else {
+		m.logger.Info("✅ Root script executed: %s", item.Name)
+	}
+	return nil
+}
+
+// handleFilePlacement handles file placement for both root and user files
+func (m *Manager) handleFilePlacement(item config.Item, fileType string) error {
+	err := m.installer.PlaceFile(item.File, fileType)
+	if err != nil {
+		if shouldStopOnError := m.handleItemError(item, err, "file placement"); shouldStopOnError {
+			return fmt.Errorf("failed to place %s %s: %w", fileType, item.Name, err)
+		}
+		return nil // Continue with next item
+	}
+	m.logger.Info("✅ %s placed: %s", fileType, item.Name)
+	return nil
+}
+
+// handleUserScript handles user script execution
+func (m *Manager) handleUserScript(item config.Item, backgroundProcessCount *int) error {
+	err := m.installer.ExecuteScript(item.File, "userscript", item.DoNotWait, m.config.TrackBackgroundProcesses)
+	if err != nil {
+		if shouldStopOnError := m.handleItemError(item, err, "script execution"); shouldStopOnError {
+			return fmt.Errorf("failed to execute user script %s: %w", item.Name, err)
+		}
+		return nil // Continue with next item
+	}
+
+	// Log success based on execution mode
+	if item.DoNotWait {
+		if m.config.TrackBackgroundProcesses {
+			*backgroundProcessCount++
+			m.logger.Info("✅ User script started in background: %s", item.Name)
+		} else {
+			m.logger.Info("✅ User script started (fire-and-forget): %s", item.Name)
+		}
+	} else {
+		m.logger.Info("✅ User script executed: %s", item.Name)
+	}
+	return nil
+}
+
+// handlePackageInstallation handles package installation with pkg_required checking
+func (m *Manager) handlePackageInstallation(item config.Item) error {
+	// Check pkg_required before installation
+	if item.PkgRequired {
+		m.logger.Debug("Checking if package %s is already installed (pkg_required=true)", item.Name)
+		isInstalled, err := utils.CheckPackageReceipt(item.PackageID, item.Version, m.logger)
+		if err != nil {
+			if shouldStopOnError := m.handleItemError(item, err, "package receipt check"); shouldStopOnError {
+				return fmt.Errorf("failed to check package receipt for %s: %w", item.Name, err)
+			}
+			return nil // Continue with next item
+		}
+		if isInstalled {
+			m.logger.Info("⏭️  Package %s already installed - skipping", item.Name)
+			return nil // Continue with next item
+		}
+		m.logger.Debug("Package %s not installed or version mismatch - proceeding with installation", item.Name)
+	}
+
+	err := m.installer.InstallPackage(item.File, "/")
+	if err != nil {
+		if shouldStopOnError := m.handleItemError(item, err, "package installation"); shouldStopOnError {
+			return fmt.Errorf("failed to install package %s: %w", item.Name, err)
+		}
+		return nil // Continue with next item
+	}
+	m.logger.Info("✅ Package installed: %s", item.Name)
+	// On success, we can mark the file as preserved for now; cleanup-all will remove it later if enabled
+	return nil
+}
+
+// handlePreflightScript handles the special case of preflight rootscript execution
+// Returns PreflightSuccessError on exit code 0, nil on exit code 1+, or error on execution failure
+func (m *Manager) handlePreflightScript(item config.Item) error {
+	// Use the preflight-specific method that handles exit codes internally
+	err := m.installer.ExecuteScriptForPreflight(item.File, "rootscript", item.DoNotWait, m.config.TrackBackgroundProcesses)
+
+	// Check if this is a preflight success signal
+	if _, ok := err.(*installer.PreflightSuccessError); ok {
+		m.logger.Info("✅ Preflight script %s passed (exit code 0) - performing full cleanup and exiting", item.Name)
+
+		// Perform complete cleanup (files, services, reboot if configured)
+		m.Cleanup("preflight success")
+
+		return err // Return the PreflightSuccessError to signal preflight success
+	} else if err != nil {
+		// Script execution failed (e.g., script not found, permission denied)
+		// Note: Preflight ignores fail_policy - only execution errors stop the process
+		m.logger.Error("❌ Preflight script execution failed for %s: %v", item.Name, err)
+		return fmt.Errorf("failed to execute preflight script %s: %w", item.Name, err)
+	} else {
+		// Script executed but returned non-zero exit code (err is nil, continue with bootstrap)
+		m.logger.Info("⚠️  Preflight script %s failed (non-zero exit code) - continuing with bootstrap", item.Name)
+		// Continue with setupassistant and userland phases
+		return nil
+	}
+}
+
+// Cleanup performs manager's own cleanup (files, based on flags)
+func (m *Manager) Cleanup(cleanupType string) {
+	m.logger.Info("🧹 Performing %s cleanup", cleanupType)
+
+	// Always clean up files if either flag is true
+	if m.config.CleanupOnSuccess || m.config.CleanupOnFailure {
+		m.logger.Debug("Cleanup flags enabled: removing downloaded artifacts")
+		if err := m.cleanupTracker.CleanupAll(); err != nil {
+			m.logger.Debug("File cleanup encountered errors: %v", err)
+		}
+	} else {
+		m.logger.Debug("Cleanup flags disabled: preserving downloaded artifacts")
+	}
+}
+
 // handleItemError processes errors according to the item's fail policy
 // Returns true if the phase should stop, false if it should continue
 func (m *Manager) handleItemError(item config.Item, err error, operation string) bool {
@@ -265,4 +349,22 @@ func (m *Manager) handleItemError(item config.Item, err error, operation string)
 		m.logger.Error("❌ Unknown fail_policy '%s' for %s: %v", policy, item.Name, err)
 		return true
 	}
+}
+
+// validatePhaseRestrictions validates that items are appropriate for the given phase
+func (m *Manager) validatePhaseRestrictions(items []config.Item, phaseName string) error {
+	for _, item := range items {
+		switch item.Type {
+		case "userscript", "userfile":
+			if phaseName == "setupassistant" {
+				return fmt.Errorf("userscript and userfile items are not allowed in setupassistant phase: %s", item.Name)
+			}
+			if phaseName == "preflight" {
+				return fmt.Errorf("userscript and userfile items are not allowed in preflight phase: %s", item.Name)
+			}
+			// userland phase allows userscripts/userfiles (handled by daemon via IPC)
+			// standalone mode allows userscripts/userfiles (handled directly by manager)
+		}
+	}
+	return nil
 }

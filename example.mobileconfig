@@ -38,6 +38,7 @@
                         <string>sha256-abc123...</string>
                         <key>fail_policy</key>
                         <string>failure_is_not_an_option</string>
+                        <!-- Note: Preflight exit code 0 = cleanup and exit, exit code 1+ = continue -->
                     </dict>
                 </array>
                 <key>setupassistant</key>

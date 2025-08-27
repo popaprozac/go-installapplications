@@ -1,8 +1,6 @@
 package mode
 
 import (
-	"os"
-
 	"github.com/go-installapplications/pkg/config"
 	"github.com/go-installapplications/pkg/installer"
 	"github.com/go-installapplications/pkg/ipc"
@@ -24,21 +22,21 @@ func RunAgent(cfg *config.Config, logger *utils.Logger) {
 			go func() { close(done) }()
 			return ipc.RPCResponse{ID: req.ID, OK: true}
 		case "RunUserScript":
-			inst := installer.NewSystemInstaller(cfg.DryRun, logger, true)
+			installer := installer.NewSystemInstaller(cfg.DryRun, logger, true)
 			if req.DoNotWait {
 				// For now, we treat donotwait as immediate start; background tracking remains local
-				if err := inst.ExecuteScript(req.Path, "userscript", true, cfg.TrackBackgroundProcesses); err != nil {
+				if err := installer.ExecuteScript(req.Path, "userscript", true, cfg.TrackBackgroundProcesses); err != nil {
 					return ipc.RPCResponse{ID: req.ID, OK: false, Error: err.Error()}
 				}
 				return ipc.RPCResponse{ID: req.ID, OK: true, Started: true}
 			}
-			if err := inst.ExecuteScript(req.Path, "userscript", false, cfg.TrackBackgroundProcesses); err != nil {
+			if err := installer.ExecuteScript(req.Path, "userscript", false, cfg.TrackBackgroundProcesses); err != nil {
 				return ipc.RPCResponse{ID: req.ID, OK: false, Error: err.Error()}
 			}
 			return ipc.RPCResponse{ID: req.ID, OK: true}
 		case "PlaceUserFile":
-			inst := installer.NewSystemInstaller(cfg.DryRun, logger, true)
-			if err := inst.PlaceFile(req.Path, "userfile"); err != nil {
+			installer := installer.NewSystemInstaller(cfg.DryRun, logger, true)
+			if err := installer.PlaceFile(req.Path, "userfile"); err != nil {
 				return ipc.RPCResponse{ID: req.ID, OK: false, Error: err.Error()}
 			}
 			return ipc.RPCResponse{ID: req.ID, OK: true}
@@ -48,7 +46,7 @@ func RunAgent(cfg *config.Config, logger *utils.Logger) {
 	})
 	if err != nil {
 		logger.Error("Failed to start agent IPC: %v", err)
-		os.Exit(1)
+		utils.Exit(cfg, logger, 1, "failed to start agent IPC")
 	}
 
 	// Keep the agent process alive until a shutdown request is received

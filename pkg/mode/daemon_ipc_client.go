@@ -25,7 +25,7 @@ func generateRequestID() string {
 // waitForAgentSocket waits until the agent socket is available or times out.
 // This replaces the older file-based "userland ready" signal and is more reliable.
 func waitForAgentSocket(logger *utils.Logger, timeout time.Duration) (string, error) {
-	uid, err := getConsoleUserUID()
+	uid, err := utils.GetConsoleUserUID()
 	if err != nil {
 		return "", err
 	}

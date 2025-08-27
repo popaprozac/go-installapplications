@@ -5,12 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 
 	"github.com/go-installapplications/pkg/config"
-	"github.com/go-installapplications/pkg/download"
 	"github.com/go-installapplications/pkg/installer"
-	"github.com/go-installapplications/pkg/manager"
 	"github.com/go-installapplications/pkg/utils"
 )
 
@@ -24,6 +21,7 @@ func RunStandalone(cfg *config.Config, logger *utils.Logger) {
 	logger.Info("Step 1: Cleaning existing installation state")
 	if err := cleanInstallationState(cfg, logger); err != nil {
 		logger.Error("Failed to clean installation state: %v", err)
+		// No cleanup needed - we haven't started bootstrap yet
 		return
 	}
 
@@ -46,6 +44,7 @@ func RunStandalone(cfg *config.Config, logger *utils.Logger) {
 		logger.Error("Standalone mode requires a server-based or MDM-managed bootstrap source:")
 		logger.Error("  1. Remote URL: --jsonurl https://company.com/bootstrap.json")
 		logger.Error("  2. Embedded in mobileconfig (deployed via MDM)")
+		// No cleanup needed - we haven't started bootstrap yet
 		return
 	}
 
@@ -54,7 +53,15 @@ func RunStandalone(cfg *config.Config, logger *utils.Logger) {
 	if err := runCompleteBootstrap(cfg, logger); err != nil {
 		logger.Error("Bootstrap process failed: %v", err)
 		logger.Error("⚠️  Manual intervention may be required")
-		return
+		// Cleanup needed since bootstrap process was started
+		// We need to create a temporary manager for cleanup
+		if _, _, _, manager, setupErr := setupBootstrapAndComponents(cfg, logger); setupErr == nil {
+			manager.Cleanup("standalone bootstrap failure")
+			utils.Exit(cfg, logger, 1, "bootstrap process failed")
+		} else {
+			// If we can't create manager, just exit without cleanup
+			utils.Exit(cfg, logger, 1, "bootstrap process failed")
+		}
 	}
 
 }
@@ -92,7 +99,7 @@ func stopInstallApplicationsServices(cfg *config.Config, logger *utils.Logger) e
 	agentPlist := "/Library/LaunchAgents/" + cfg.LaunchAgentIdentifier + ".plist"
 
 	// Determine current console user's GUI domain for agent bootout
-	uid, err := getConsoleUserUID()
+	uid, err := utils.GetConsoleUserUID()
 	if err != nil || uid == "" {
 		logger.Debug("Could not determine console user UID, defaulting to gui/501: %v", err)
 		uid = "501"
@@ -181,79 +188,22 @@ func clearCachedState(cfg *config.Config, logger *utils.Logger) error {
 func runCompleteBootstrap(cfg *config.Config, logger *utils.Logger) error {
 	logger.Info("🔄 Starting complete bootstrap process")
 
-	// Get bootstrap using the same logic as daemon/agent modes (server or MDM only)
-	var bootstrap *config.Bootstrap
-	var err error
-
-	if cfg.JSONURL != "" {
-		// Download from URL (same logic as daemon/agent)
-		logger.Info("Downloading bootstrap from: %s", cfg.JSONURL)
-
-		bootstrapPath := filepath.Join(cfg.InstallPath, "bootstrap.json")
-
-		// Create authenticated downloader if needed
-		var downloader *download.Client
-		if cfg.HTTPAuthUser != "" || len(cfg.HTTPHeaders) > 0 {
-			downloader = download.NewClientWithAuth(logger, cfg.HTTPAuthUser, cfg.HTTPAuthPassword, cfg.HTTPHeaders)
-			logger.Debug("Using authenticated download client")
-		} else {
-			downloader = download.NewClient(logger)
-		}
-		downloader.SetFollowRedirects(cfg.FollowRedirects)
-		downloader.SetRetryDefaults(cfg.MaxRetries, cfg.RetryDelay)
-
-		if err := downloader.DownloadFile(cfg.JSONURL, bootstrapPath, ""); err != nil {
-			return fmt.Errorf("failed to download bootstrap: %w", err)
-		}
-
-		if cfg.SkipValidation {
-			logger.Debug("SkipValidation=true: loading bootstrap without validation")
-			bootstrap, err = config.LoadBootstrapWithOptions(bootstrapPath, false)
-		} else {
-			bootstrap, err = config.LoadBootstrap(bootstrapPath)
-		}
-		if err != nil {
-			return fmt.Errorf("failed to parse downloaded bootstrap: %w", err)
-		}
-	} else {
-		// Load from embedded mobileconfig
-		logger.Info("Loading bootstrap from embedded mobileconfig")
-		bootstrap, err = cfg.LoadBootstrapFromProfile(config.DefaultProfileDomain)
-		if err != nil {
-			return fmt.Errorf("failed to load bootstrap from mobileconfig: %w", err)
-		}
+	// Get bootstrap and create components using shared logic
+	bootstrap, _, _, manager, err := setupBootstrapAndComponents(cfg, logger)
+	if err != nil {
+		return fmt.Errorf("failed to setup bootstrap and components: %w", err)
 	}
-
-	// Validate bootstrap
-	if !cfg.SkipValidation {
-		if err := config.ValidateBootstrap(bootstrap); err != nil {
-			return fmt.Errorf("bootstrap validation failed: %w", err)
-		}
-	} else {
-		logger.Debug("SkipValidation=true: skipping bootstrap structural validation")
-	}
-
-	logger.Info("Bootstrap loaded successfully")
-	logger.Debug("Preflight: %d, SetupAssistant: %d, Userland: %d items",
-		len(bootstrap.Preflight), len(bootstrap.SetupAssistant), len(bootstrap.Userland))
-
-	// Create components for processing
-	var downloader *download.Client
-	if cfg.HTTPAuthUser != "" || len(cfg.HTTPHeaders) > 0 {
-		downloader = download.NewClientWithAuth(logger, cfg.HTTPAuthUser, cfg.HTTPAuthPassword, cfg.HTTPHeaders)
-	} else {
-		downloader = download.NewClient(logger)
-	}
-	downloader.SetRetryDefaults(cfg.MaxRetries, cfg.RetryDelay)
-
-	// Standalone mode runs as root but can handle both root and user items (recovery scenario)
-	systemInstaller := installer.NewSystemInstaller(cfg.DryRun, logger, false) // false = daemon context, but allows user items
-	manager := manager.NewManager(downloader, systemInstaller, cfg, logger)
 
 	// Run all phases in order (like the complete daemon + agent flow)
-	if len(bootstrap.Preflight) > 0 {
+	if len(bootstrap.Preflight) > 0 && cfg.WithPreflight {
 		logger.Info("Starting preflight phase")
 		if err := manager.ProcessItems(bootstrap.Preflight, "preflight"); err != nil {
+			// Check if this is a preflight success signal
+			if _, ok := err.(*installer.PreflightSuccessError); ok {
+				logger.Info("Preflight script passed - cleaning up and exiting")
+				return nil // Return success to indicate completion
+			}
+			// Actual error occurred
 			return fmt.Errorf("preflight phase failed: %w", err)
 		}
 		logger.Info("Preflight phase completed successfully")
@@ -276,13 +226,11 @@ func runCompleteBootstrap(cfg *config.Config, logger *utils.Logger) error {
 	}
 
 	logger.Info("All phases completed successfully")
-	if cfg.Reboot {
-		logger.Info("Reboot flag is set; system will reboot in 5 seconds")
-		time.Sleep(5 * time.Second)
-		cmd := exec.Command("/sbin/shutdown", "-r", "now")
-		if err := cmd.Start(); err != nil {
-			logger.Error("Failed to initiate reboot: %v", err)
-		}
-	}
-	return nil
+
+	// Perform cleanup and exit
+	manager.Cleanup("standalone completion")
+	// Perform manager cleanup, then exit with system cleanup
+	manager.Cleanup("standalone completion")
+	utils.Exit(cfg, logger, 0, "standalone successful completion")
+	return nil // This line will never be reached due to os.Exit
 }

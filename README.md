@@ -50,6 +50,9 @@ sudo ./go-installapplications --debug --mode standalone
 
 # Test with remote bootstrap
 sudo ./go-installapplications --debug --mode standalone --jsonurl https://your-server.com/bootstrap.json
+
+# Test with preflight phase enabled
+sudo ./go-installapplications --debug --mode standalone --with-preflight --jsonurl https://your-server.com/bootstrap.json
 ```
 
 ## 📋 Configuration
@@ -266,6 +269,8 @@ When using `--jsonurl` or for reference when creating embedded bootstrap:
 | **RetainLogFiles** | `false` | Retain log files from previous runs | All | `--retain-log-files` |
 | **FollowRedirects** | `false` | Follow HTTP redirects | All | `--follow-redirects` |
 | **SkipValidation** | `false` | Skip bootstrap.json validation | All | `--skip-validation` |
+| **WithPreflight** | `false` | Enable preflight phase in standalone mode | Standalone | `--with-preflight` |
+| **NoRestartOnError** | `false` | Exit with code 0 on errors to prevent daemon restart | Daemon | `--no-restart-on-error` |
 | **LaunchAgentIdentifier** | `com.github.go-installapplications.agent` | LaunchAgent identifier | All | `--laidentifier` |
 | **LaunchDaemonIdentifier** | `com.github.go-installapplications.daemon` | LaunchDaemon identifier | All | `--ldidentifier` |
 
@@ -284,6 +289,8 @@ When using `--jsonurl` or for reference when creating embedded bootstrap:
 #### Phase Execution Order
 
 1. **`preflight`**: System-level preparation (root context, single `rootscript` only)
+   - **Exit Code Behavior**: Exit code 0 = cleanup and exit, Exit code 1+ = continue with setupassistant and userland
+   - **Standalone Mode**: Skipped by default, use `--with-preflight` to enable
 2. **`setupassistant`**: System configuration (root context, packages + `rootscript`/`rootfile`)  
 3. **`userland`**: Mixed root/user items processed in strict order
    - Root items (`package`, `rootscript`, `rootfile`): executed by the daemon (root context)
@@ -308,6 +315,41 @@ When using `--jsonurl` or for reference when creating embedded bootstrap:
 | **`failable_execution`** | Continue on script errors only | Scripts that may fail, but packages must install |
 
 ## 🔧 Advanced Features
+
+### Preflight Phase Behavior
+
+The `preflight` phase has special exit code handling for backwards compatibility with the original InstallApplications:
+
+**Exit Code Behavior:**
+- **Exit code 0**: Full cleanup and exit immediately (matches original InstallApplications)
+  - Remove downloaded files (if `CleanupOnSuccess=true`)
+  - Remove LaunchDaemon and LaunchAgent plist files
+  - Boot out daemon and agent services
+  - Remove entire installation directory
+  - Exit with code 0 (daemon/agent will not restart due to `KeepAlive` configuration)
+- **Exit code 1+**: Continue with setupassistant and userland phases
+
+**Standalone Mode:**
+- **Default**: Preflight phase is skipped entirely
+- **Enable**: Use `--with-preflight` flag to enable preflight execution
+- **Use Case**: IT support can run standalone mode without preflight for DEP recovery scenarios
+
+**Configuration:**
+- `CleanupOnSuccess` controls whether files are cleaned up on preflight exit code 0 (default: `true`)
+- Only `rootscript` items are supported in preflight phase
+- Preflight scripts run in root context
+
+**Example Usage:**
+```bash
+# Daemon mode - preflight exit 0 = full cleanup and exit (removes plists, boots out services, removes install dir)
+sudo ./go-installapplications --mode daemon --jsonurl https://company.com/bootstrap.json
+
+# Standalone with preflight enabled
+sudo ./go-installapplications --mode standalone --with-preflight --jsonurl https://company.com/bootstrap.json
+
+# Preserve everything on preflight success (files, plists, services, install dir)
+sudo ./go-installapplications --mode daemon --cleanup-on-success=false --jsonurl https://company.com/bootstrap.json
+```
 
 ### HTTP Authentication (summary)
 

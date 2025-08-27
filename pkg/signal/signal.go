@@ -1,3 +1,5 @@
+// Potential fallback, we use socket instead. Not currently used.
+
 package signal
 
 import (

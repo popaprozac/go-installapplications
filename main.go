@@ -25,6 +25,8 @@ func main() {
 		"dry-run":                    {},
 		"track-background-processes": {},
 		"reset-retries":              {},
+		"with-preflight":             {},
+		"no-restart-on-error":        {},
 	})
 
 	// Create a new config with defaults
@@ -41,8 +43,8 @@ func main() {
 	maxRetries := flag.Int("max-retries", 3, "Maximum number of retries for failed installs")
 	retryDelay := flag.Int("retry-delay", 5, "Delay between retries in seconds")
 
-	cleanupOnFailure := flag.Bool("cleanup-on-failure", false, "Cleanup on failure (default: true, set to false to disable)")
-	cleanupOnSuccess := flag.Bool("cleanup-on-success", false, "Cleanup on success (default: true, set to false to disable)")
+	cleanupOnFailure := flag.Bool("cleanup-on-failure", true, "Cleanup on failure (default: true, set to false to disable)")
+	cleanupOnSuccess := flag.Bool("cleanup-on-success", true, "Cleanup on success (default: true, set to false to disable)")
 	keepFailedFiles := flag.Bool("keep-failed-files", false, "Keep failed files (default: false, set to true to keep)")
 
 	dryRun := flag.Bool("dry-run", false, "Dry run - don't actually install anything (default: false)")
@@ -78,6 +80,9 @@ func main() {
 	logFilePath := flag.String("log-file", "", "Force logs to also go to this file (in addition to console)")
 
 	retainLogFiles := flag.Bool("retain-log-files", false, "Retain log files from previous runs (default: false, set to true to retain)")
+
+	withPreflight := flag.Bool("with-preflight", false, "Run preflight phase in standalone mode (default: false, standalone skips preflight by default)")
+	noRestartOnError := flag.Bool("no-restart-on-error", false, "Exit with code 0 on errors to prevent daemon restart (default: false)")
 
 	// Parse the command-line arguments
 	flag.Parse()
@@ -170,15 +175,9 @@ func main() {
 	if flagsSet["skip-validation"] {
 		cfg.SkipValidation = *skipValidation
 	}
-	if flagsSet["cleanup-on-failure"] {
-		cfg.CleanupOnFailure = *cleanupOnFailure
-	}
-	if flagsSet["cleanup-on-success"] {
-		cfg.CleanupOnSuccess = *cleanupOnSuccess
-	}
-	if flagsSet["keep-failed-files"] {
-		cfg.KeepFailedFiles = *keepFailedFiles
-	}
+	cfg.CleanupOnFailure = *cleanupOnFailure
+	cfg.CleanupOnSuccess = *cleanupOnSuccess
+	cfg.KeepFailedFiles = *keepFailedFiles
 	if flagsSet["dry-run"] {
 		cfg.DryRun = *dryRun
 	}
@@ -190,6 +189,12 @@ func main() {
 	}
 	if flagsSet["retain-log-files"] {
 		cfg.RetainLogFiles = *retainLogFiles
+	}
+	if flagsSet["with-preflight"] {
+		cfg.WithPreflight = *withPreflight
+	}
+	if flagsSet["no-restart-on-error"] {
+		cfg.NoRestartOnError = *noRestartOnError
 	}
 
 	// Download and IPC settings
@@ -270,6 +275,10 @@ func main() {
 			}
 		} else {
 			logger = utils.NewLogger(cfg.Debug, cfg.Verbose)
+		}
+
+		if cfg.WithPreflight {
+			logger.Debug("Preflight phase can only be skipped in standalone mode. Ignoring --with-preflight flag.")
 		}
 	}
 

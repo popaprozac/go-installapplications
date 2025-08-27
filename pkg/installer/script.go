@@ -6,12 +6,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-installapplications/pkg/utils"
 )
+
+// PreflightSuccessError is a special error type that signals preflight success
+// This allows the caller to distinguish between actual errors and preflight success
+type PreflightSuccessError struct{}
+
+func (e *PreflightSuccessError) Error() string {
+	return "preflight script passed - cleaning up and exiting"
+}
 
 // ScriptExecutor handles script execution
 type ScriptExecutor struct {
@@ -77,18 +84,70 @@ func (se *ScriptExecutor) detectScriptInterpreter(scriptPath string) (string, er
 
 // ExecuteScript runs a script with appropriate permissions and donotwait support
 func (se *ScriptExecutor) ExecuteScript(scriptPath, scriptType string, doNotWait bool, trackBackgroundProcesses bool) error {
+	return se.executeScript(scriptPath, scriptType, doNotWait, trackBackgroundProcesses, false)
+}
+
+// ExecuteScriptForPreflight runs a script with special preflight exit code handling
+func (se *ScriptExecutor) ExecuteScriptForPreflight(scriptPath, scriptType string, doNotWait bool, trackBackgroundProcesses bool) error {
+	return se.executeScript(scriptPath, scriptType, doNotWait, trackBackgroundProcesses, true)
+}
+
+// executeScript is the internal implementation that handles both normal and preflight scripts
+func (se *ScriptExecutor) executeScript(scriptPath, scriptType string, doNotWait bool, trackBackgroundProcesses bool, isPreflight bool) error {
 	se.logger.Info("Executing %s script: %s", scriptType, scriptPath)
 	se.logger.Debug("Script executor dry-run mode: %t, donotwait: %t, track-bg: %t", se.dryRun, doNotWait, trackBackgroundProcesses)
 
 	if se.dryRun {
-		if doNotWait {
-			se.logger.Info("[DRY RUN] Would execute in background: %s (%s)", scriptPath, scriptType)
-		} else {
-			se.logger.Info("[DRY RUN] Would execute: %s (%s)", scriptPath, scriptType)
-		}
-		return nil
+		return se.handleDryRunExecution(scriptPath, scriptType, doNotWait)
 	}
 
+	// Validate and prepare script
+	if err := se.validateAndPrepareScript(scriptPath); err != nil {
+		return err
+	}
+
+	// Create and configure command
+	cmd, err := se.createScriptCommand(scriptPath, scriptType)
+	if err != nil {
+		return err
+	}
+
+	// Handle background execution
+	if doNotWait && !isPreflight {
+		return se.handleBackgroundExecution(cmd, scriptPath, scriptType, trackBackgroundProcesses)
+	}
+
+	// Execute and handle result
+	return se.executeAndHandleResult(cmd, scriptPath, scriptType, isPreflight)
+}
+
+// WaitForBackgroundProcesses waits for all background processes to complete
+func (se *ScriptExecutor) WaitForBackgroundProcesses(timeout time.Duration) []error {
+	return se.processTracker.WaitForCompletion(timeout)
+}
+
+// GetBackgroundProcessCount returns the number of active background processes
+func (se *ScriptExecutor) GetBackgroundProcessCount() int {
+	return se.processTracker.GetActiveCount()
+}
+
+// getCurrentLoggedInUserUID returns the UID of the currently logged-in user
+func (se *ScriptExecutor) getCurrentLoggedInUserUID() (string, error) {
+	return utils.GetConsoleUserUID()
+}
+
+// handleDryRunExecution handles script execution in dry-run mode
+func (se *ScriptExecutor) handleDryRunExecution(scriptPath, scriptType string, doNotWait bool) error {
+	if doNotWait {
+		se.logger.Info("[DRY RUN] Would execute in background: %s (%s)", scriptPath, scriptType)
+	} else {
+		se.logger.Info("[DRY RUN] Would execute: %s (%s)", scriptPath, scriptType)
+	}
+	return nil
+}
+
+// validateAndPrepareScript validates script exists and sets permissions
+func (se *ScriptExecutor) validateAndPrepareScript(scriptPath string) error {
 	// Check if script exists
 	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
 		return fmt.Errorf("script does not exist: %s", scriptPath)
@@ -110,6 +169,11 @@ func (se *ScriptExecutor) ExecuteScript(scriptPath, scriptType string, doNotWait
 	}
 	se.logger.Debug("Script interpreter: %s", interpreter)
 
+	return nil
+}
+
+// createScriptCommand creates and configures the appropriate command for script execution
+func (se *ScriptExecutor) createScriptCommand(scriptPath, scriptType string) (*exec.Cmd, error) {
 	var cmd *exec.Cmd
 
 	switch scriptType {
@@ -121,23 +185,26 @@ func (se *ScriptExecutor) ExecuteScript(scriptPath, scriptType string, doNotWait
 			if se.isAgentMode {
 				return "agent"
 			} else {
-				return "daemon"
+				return "daemon/standalone"
 			}
 		}())
 		cmd = exec.Command(scriptPath)
 	case "userscript":
 		// User-context scripts
-		// - Daemon/agent flow: userscripts are executed by the Agent only (daemon delegates via IPC)
-		// - Standalone mode: process runs as root and must switch to the logged-in user via launchctl asuser
 		if se.isAgentMode {
 			se.logger.Debug("Running userscript as user (agent mode)")
 			cmd = exec.Command(scriptPath)
 		} else {
-			se.logger.Debug("Running userscript as logged-in user via launchctl asuser (standalone/root context)")
-			return se.executeAsLoggedInUser(scriptPath, scriptType)
+			// Standalone mode: use launchctl asuser to execute as logged-in user
+			se.logger.Debug("Running userscript as logged-in user via launchctl asuser (standalone mode)")
+			userUID, err := se.getCurrentLoggedInUserUID()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get user UID for userscript: %w", err)
+			}
+			cmd = exec.Command("launchctl", "asuser", userUID, scriptPath)
 		}
 	default:
-		return fmt.Errorf("unknown script type: %s", scriptType)
+		return nil, fmt.Errorf("unknown script type: %s", scriptType)
 	}
 
 	// Set working directory to script's directory
@@ -145,25 +212,37 @@ func (se *ScriptExecutor) ExecuteScript(scriptPath, scriptType string, doNotWait
 	se.logger.Debug("Setting working directory: %s", cmd.Dir)
 	se.logger.Verbose("Executing command: %s", cmd.String())
 
-	// Handle donotwait behavior
-	if doNotWait {
-		if trackBackgroundProcesses {
-			// Modern mode: Track the background process
-			se.logger.Info("Starting script in background (tracked): %s", scriptPath)
-			return se.processTracker.StartBackgroundProcess(cmd, fmt.Sprintf("%s (%s)", scriptPath, scriptType))
-		} else {
-			// Legacy mode: Fire and forget
-			se.logger.Info("Starting script in background (fire-and-forget): %s", scriptPath)
-			if err := cmd.Start(); err != nil {
-				return fmt.Errorf("failed to start background script: %w", err)
-			}
-			se.logger.Info("Background script started: %s", scriptPath)
-			return nil
-		}
-	}
+	return cmd, nil
+}
 
+// handleBackgroundExecution handles script execution in background mode
+func (se *ScriptExecutor) handleBackgroundExecution(cmd *exec.Cmd, scriptPath, scriptType string, trackBackgroundProcesses bool) error {
+	if trackBackgroundProcesses {
+		// Modern mode: Track the background process
+		se.logger.Info("Starting script in background (tracked): %s", scriptPath)
+		return se.processTracker.StartBackgroundProcess(cmd, fmt.Sprintf("%s (%s)", scriptPath, scriptType))
+	} else {
+		// Legacy mode: Fire and forget
+		se.logger.Info("Starting script in background (fire-and-forget): %s", scriptPath)
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("failed to start background script: %w", err)
+		}
+		se.logger.Info("Background script started: %s", scriptPath)
+		return nil
+	}
+}
+
+// executeAndHandleResult executes the command and handles the result based on context
+func (se *ScriptExecutor) executeAndHandleResult(cmd *exec.Cmd, scriptPath, scriptType string, isPreflight bool) error {
 	// Normal execution: wait for completion
 	output, err := cmd.CombinedOutput()
+
+	// Handle preflight exit code behavior (matches original InstallApplications)
+	if isPreflight && scriptType == "rootscript" {
+		return se.handlePreflightResult(err, output)
+	}
+
+	// Normal script execution (non-preflight)
 	if err != nil {
 		se.logger.Error("Script execution failed: %v", err)
 		se.logger.Debug("Script output: %s", string(output))
@@ -180,63 +259,25 @@ func (se *ScriptExecutor) ExecuteScript(scriptPath, scriptType string, doNotWait
 	return nil
 }
 
-// WaitForBackgroundProcesses waits for all background processes to complete
-func (se *ScriptExecutor) WaitForBackgroundProcesses(timeout time.Duration) []error {
-	return se.processTracker.WaitForCompletion(timeout)
-}
-
-// GetBackgroundProcessCount returns the number of active background processes
-func (se *ScriptExecutor) GetBackgroundProcessCount() int {
-	return se.processTracker.GetActiveCount()
-}
-
-// executeAsLoggedInUser executes a script as the currently logged-in user using launchctl asuser
-func (se *ScriptExecutor) executeAsLoggedInUser(scriptPath, scriptType string) error {
-	// Get the currently logged-in user
-	userUID, err := se.getCurrentLoggedInUserUID()
+// handlePreflightResult handles the special preflight exit code logic
+func (se *ScriptExecutor) handlePreflightResult(err error, output []byte) error {
 	if err != nil {
-		return fmt.Errorf("failed to get logged-in user: %w", err)
+		// Script failed (non-zero exit code) - all treated the same
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode := exitErr.ExitCode()
+			se.logger.Info("⚠️  Preflight script failed (exit code %d) - continuing with bootstrap", exitCode)
+			se.logger.Debug("Script output: %s", string(output))
+			return nil // Return nil to continue with bootstrap (all non-zero exit codes)
+		} else {
+			// Non-exit error (e.g., script not found, permission denied)
+			se.logger.Error("Preflight script execution failed: %v", err)
+			se.logger.Debug("Script output: %s", string(output))
+			return fmt.Errorf("preflight script execution failed: %w, output: %s", err, string(output))
+		}
+	} else {
+		// Script succeeded (exit code 0)
+		se.logger.Info("✅ Preflight script passed (exit code 0) - signaling cleanup and exit")
+		se.logger.Debug("Script output: %s", string(output))
+		return &PreflightSuccessError{} // Special error to signal preflight success
 	}
-
-	// Log the execution context
-	se.logger.Info("Executing %s as user (UID: %s) via launchctl asuser", scriptType, userUID)
-
-	// Use launchctl asuser to execute the script in the user's context
-	cmd := exec.Command("launchctl", "asuser", userUID, scriptPath)
-	cmd.Dir = filepath.Dir(scriptPath)
-
-	// Capture output for logging
-	output, err := cmd.CombinedOutput()
-	if len(output) > 0 {
-		se.logger.Info("%s output: %s", scriptType, string(output))
-	}
-
-	if err != nil {
-		return fmt.Errorf("%s execution failed: %w", scriptType, err)
-	}
-
-	se.logger.Info("%s completed successfully", scriptType)
-	return nil
-}
-
-// getCurrentLoggedInUserUID returns the UID of the currently logged-in user
-func (se *ScriptExecutor) getCurrentLoggedInUserUID() (string, error) {
-	// Use stat on /dev/console to get the owner (logged-in user)
-	cmd := exec.Command("stat", "-f", "%u", "/dev/console")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get console user UID: %w", err)
-	}
-
-	uid := strings.TrimSpace(string(output))
-	if uid == "" || uid == "0" {
-		return "", fmt.Errorf("no user logged in or root owns console")
-	}
-
-	// Validate that the UID is a number
-	if _, err := strconv.Atoi(uid); err != nil {
-		return "", fmt.Errorf("invalid UID format: %s", uid)
-	}
-
-	return uid, nil
 }

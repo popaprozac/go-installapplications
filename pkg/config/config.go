@@ -56,6 +56,9 @@ type Config struct {
 
 	RetainLogFiles bool `json:"retain_log_files"` // Retain log files from previous runs
 
+	WithPreflight    bool `json:"with_preflight"`      // Run preflight phase in standalone mode
+	NoRestartOnError bool `json:"no_restart_on_error"` // Exit 0 on errors to prevent restart
+
 	// Bootstrap configuration (can be set from top-level or mode-specific sections)
 	bootstrapConfig interface{} `json:"-"` // Internal field for bootstrap configuration
 
@@ -100,6 +103,9 @@ func NewConfig() *Config {
 		LaunchDaemonIdentifier: "com.github.go-installapplications.daemon",
 
 		RetainLogFiles: false, // Create a new log file for each run
+
+		WithPreflight:    false,
+		NoRestartOnError: false,
 
 		DefaultBootstrapPath: "/Library/go-installapplications/bootstrap.json",
 
@@ -177,6 +183,8 @@ func (c *Config) RedactedForLogging() map[string]interface{} {
 		"SkipValidation":         c.SkipValidation,
 		"LaunchAgentIdentifier":  c.LaunchAgentIdentifier,
 		"LaunchDaemonIdentifier": c.LaunchDaemonIdentifier,
+		// Bootstrap
+		"withPreflight": c.WithPreflight,
 	}
 
 	return snapshot

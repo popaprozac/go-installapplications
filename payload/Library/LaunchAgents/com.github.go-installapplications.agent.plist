@@ -18,12 +18,6 @@
         <key>RunAtLoad</key>
         <true/>
 
-        <key>KeepAlive</key>
-        <dict>
-            <key>SuccessfulExit</key>
-            <false/>
-        </dict>
-
         <key>StandardOutPath</key>
         <string>/var/log/go-installapplications/go-installapplications.agent.log</string>
 

@@ -10,15 +10,17 @@ import (
 type Installer interface {
 	InstallPackage(pkgPath, target string) error
 	ExecuteScript(scriptPath, scriptType string, doNotWait bool, trackBackgroundProcesses bool) error
+	ExecuteScriptForPreflight(scriptPath, scriptType string, doNotWait bool, trackBackgroundProcesses bool) error
 	PlaceFile(filePath, fileType string) error
 	WaitForBackgroundProcesses(timeout time.Duration) []error
 	GetBackgroundProcessCount() int
 }
 
-// SystemInstaller combines package and script installation
+// SystemInstaller combines package, script, and file installation
 type SystemInstaller struct {
 	packageInstaller *PackageInstaller
 	scriptExecutor   *ScriptExecutor
+	filePlacer       *FilePlacer
 	logger           *utils.Logger
 }
 
@@ -27,6 +29,7 @@ func NewSystemInstaller(dryRun bool, logger *utils.Logger, isAgentMode bool) *Sy
 	return &SystemInstaller{
 		packageInstaller: NewPackageInstaller(dryRun, logger, isAgentMode),
 		scriptExecutor:   NewScriptExecutor(dryRun, logger, isAgentMode),
+		filePlacer:       NewFilePlacer(dryRun, logger, isAgentMode),
 		logger:           logger,
 	}
 }
@@ -39,6 +42,16 @@ func (si *SystemInstaller) InstallPackage(pkgPath, target string) error {
 // ExecuteScript executes a script with donotwait and tracking support
 func (si *SystemInstaller) ExecuteScript(scriptPath, scriptType string, doNotWait bool, trackBackgroundProcesses bool) error {
 	return si.scriptExecutor.ExecuteScript(scriptPath, scriptType, doNotWait, trackBackgroundProcesses)
+}
+
+// ExecuteScriptForPreflight executes a script with special preflight exit code handling
+func (si *SystemInstaller) ExecuteScriptForPreflight(scriptPath, scriptType string, doNotWait bool, trackBackgroundProcesses bool) error {
+	return si.scriptExecutor.ExecuteScriptForPreflight(scriptPath, scriptType, doNotWait, trackBackgroundProcesses)
+}
+
+// PlaceFile places a file with appropriate permissions
+func (si *SystemInstaller) PlaceFile(filePath, fileType string) error {
+	return si.filePlacer.PlaceFile(filePath, fileType)
 }
 
 // WaitForBackgroundProcesses waits for all background processes to complete

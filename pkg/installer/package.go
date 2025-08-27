@@ -51,7 +51,7 @@ func (pi *PackageInstaller) InstallPackage(pkgPath, target string) error {
 		if pi.isAgentMode {
 			return "agent"
 		} else {
-			return "daemon"
+			return "daemon/standalone"
 		}
 	}(), cmd.String())
 	pi.logger.Verbose("Command args: %v", cmd.Args)
