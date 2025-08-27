@@ -1,4 +1,4 @@
-package phases
+package manager
 
 import (
 	"errors"

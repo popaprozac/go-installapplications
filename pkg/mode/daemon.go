@@ -10,7 +10,7 @@ import (
 	"github.com/go-installapplications/pkg/download"
 	"github.com/go-installapplications/pkg/installer"
 	"github.com/go-installapplications/pkg/ipc"
-	"github.com/go-installapplications/pkg/phases"
+	"github.com/go-installapplications/pkg/manager"
 	"github.com/go-installapplications/pkg/retry"
 	"github.com/go-installapplications/pkg/utils"
 )
@@ -54,7 +54,7 @@ func RunDaemon(cfg *config.Config, logger *utils.Logger) {
 	downloader.SetRetryDefaults(cfg.MaxRetries, cfg.RetryDelay)
 
 	systemInstaller := installer.NewSystemInstaller(cfg.DryRun, logger, false) // false = daemon mode (root)
-	manager := phases.NewManager(downloader, systemInstaller, cfg, logger)
+	manager := manager.NewManager(downloader, systemInstaller, cfg, logger)
 
 	// Process preflight phase
 	if len(bootstrap.Preflight) > 0 {

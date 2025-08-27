@@ -10,7 +10,7 @@ import (
 	"github.com/go-installapplications/pkg/config"
 	"github.com/go-installapplications/pkg/download"
 	"github.com/go-installapplications/pkg/installer"
-	"github.com/go-installapplications/pkg/phases"
+	"github.com/go-installapplications/pkg/manager"
 	"github.com/go-installapplications/pkg/utils"
 )
 
@@ -248,7 +248,7 @@ func runCompleteBootstrap(cfg *config.Config, logger *utils.Logger) error {
 
 	// Standalone mode runs as root but can handle both root and user items (recovery scenario)
 	systemInstaller := installer.NewSystemInstaller(cfg.DryRun, logger, false) // false = daemon context, but allows user items
-	manager := phases.NewManager(downloader, systemInstaller, cfg, logger)
+	manager := manager.NewManager(downloader, systemInstaller, cfg, logger)
 
 	// Run all phases in order (like the complete daemon + agent flow)
 	if len(bootstrap.Preflight) > 0 {
