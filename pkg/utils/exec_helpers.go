@@ -35,6 +35,11 @@ func GetConsoleUserUID() (string, error) {
 	return out, nil
 }
 
+// IsRootUser checks if the current process is running with root privileges
+func IsRootUser() bool {
+	return os.Geteuid() == 0
+}
+
 // Exit handles program exit with cleanup and optional message
 func Exit(cfg *config.Config, logger *Logger, exitCode int, message string) {
 	if message != "" {

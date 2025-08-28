@@ -40,7 +40,7 @@ func (m *Manager) ProcessItems(items []config.Item, phaseName string) error {
 		return err
 	}
 
-	m.logger.Info("=== Processing %s phase ===", phaseName)
+	m.logger.Info("📋 Processing %s phase", phaseName)
 
 	// Filter items based on skip_if criteria
 	var filteredItems []config.Item
@@ -91,7 +91,7 @@ func (m *Manager) ProcessItems(items []config.Item, phaseName string) error {
 			m.logger.Error("❌ Download failed: %s - %v", result.Item.Name, result.Error)
 			downloadErrors = append(downloadErrors, result.Error)
 		} else {
-			m.logger.Info("✅ Download success: %s", result.Item.Name)
+			m.logger.Debug("✅ Download success: %s", result.Item.Name)
 			successfulItems = append(successfulItems, result.Item)
 		}
 	}
@@ -107,7 +107,7 @@ func (m *Manager) ProcessItems(items []config.Item, phaseName string) error {
 	var backgroundProcessCount int
 
 	for i, item := range successfulItems {
-		m.logger.Info("Processing item %d/%d: %s (%s)", i+1, len(successfulItems), item.Name, item.Type)
+		m.logger.Debug("Processing item %d/%d: %s (%s)", i+1, len(successfulItems), item.Name, item.Type)
 
 		// Log donotwait behavior if enabled
 		if item.DoNotWait {
@@ -169,7 +169,7 @@ func (m *Manager) ProcessItems(items []config.Item, phaseName string) error {
 		m.logger.Info("All background processes from %s phase completed successfully", phaseName)
 	}
 
-	m.logger.Info("=== Completed %s phase ===", phaseName)
+	m.logger.Info("✅ Completed %s phase", phaseName)
 
 	// Cleanup on success, if configured
 	if m.config.CleanupOnSuccess {

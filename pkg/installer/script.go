@@ -276,7 +276,7 @@ func (se *ScriptExecutor) handlePreflightResult(err error, output []byte) error 
 		}
 	} else {
 		// Script succeeded (exit code 0)
-		se.logger.Info("✅ Preflight script passed (exit code 0) - signaling cleanup and exit")
+		se.logger.Verbose("✅ Preflight script passed (exit code 0) - signaling cleanup and exit")
 		se.logger.Debug("Script output: %s", string(output))
 		return &PreflightSuccessError{} // Special error to signal preflight success
 	}

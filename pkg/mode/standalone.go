@@ -18,7 +18,7 @@ func RunStandalone(cfg *config.Config, logger *utils.Logger) {
 	logger.Info("Starting standalone mode")
 
 	// Step 1: Clean existing state (but preserve binary)
-	logger.Info("Step 1: Cleaning existing installation state")
+	logger.Info("🧹 Step 1: Cleaning existing installation state")
 	if err := cleanInstallationState(cfg, logger); err != nil {
 		logger.Error("Failed to clean installation state: %v", err)
 		// No cleanup needed - we haven't started bootstrap yet
@@ -28,13 +28,14 @@ func RunStandalone(cfg *config.Config, logger *utils.Logger) {
 	// Step 2: Check if we have a valid bootstrap source (server-based or MDM-embedded only)
 	hasBootstrapSource := false
 	if cfg.JSONURL != "" {
-		logger.Info("Bootstrap source: JSON URL (%s)", cfg.JSONURL)
+		logger.Info("📥 Bootstrap source: JSON URL")
+		logger.Debug("JSON URL: %s", cfg.JSONURL)
 		hasBootstrapSource = true
 	} else {
 		// Check for embedded bootstrap in mobileconfig
 		_, err := cfg.LoadBootstrapFromProfile(config.DefaultProfileDomain)
 		if err == nil {
-			logger.Info("Bootstrap source: Embedded in mobileconfig")
+			logger.Info("📱 Bootstrap source: Embedded in mobileconfig")
 			hasBootstrapSource = true
 		}
 	}
@@ -49,7 +50,7 @@ func RunStandalone(cfg *config.Config, logger *utils.Logger) {
 	}
 
 	// Step 3: Run complete bootstrap process
-	logger.Info("Step 2: Running complete bootstrap process")
+	logger.Info("🚀 Step 2: Running complete bootstrap process")
 	if err := runCompleteBootstrap(cfg, logger); err != nil {
 		logger.Error("Bootstrap process failed: %v", err)
 		logger.Error("⚠️  Manual intervention may be required")
@@ -196,7 +197,7 @@ func runCompleteBootstrap(cfg *config.Config, logger *utils.Logger) error {
 
 	// Run all phases in order (like the complete daemon + agent flow)
 	if len(bootstrap.Preflight) > 0 && cfg.WithPreflight {
-		logger.Info("Starting preflight phase")
+		logger.Info("🎯 Starting preflight phase")
 		if err := manager.ProcessItems(bootstrap.Preflight, "preflight"); err != nil {
 			// Check if this is a preflight success signal
 			if _, ok := err.(*installer.PreflightSuccessError); ok {
@@ -206,30 +207,28 @@ func runCompleteBootstrap(cfg *config.Config, logger *utils.Logger) error {
 			// Actual error occurred
 			return fmt.Errorf("preflight phase failed: %w", err)
 		}
-		logger.Info("Preflight phase completed successfully")
+		logger.Info("✅ Preflight phase completed successfully")
 	}
 
 	if len(bootstrap.SetupAssistant) > 0 {
-		logger.Info("Starting setupassistant phase")
+		logger.Info("⚙️  Starting setupassistant phase")
 		if err := manager.ProcessItems(bootstrap.SetupAssistant, "setupassistant"); err != nil {
 			return fmt.Errorf("setupassistant phase failed: %w", err)
 		}
-		logger.Info("Setupassistant phase completed successfully")
+		logger.Info("✅ Setupassistant phase completed successfully")
 	}
 
 	if len(bootstrap.Userland) > 0 {
-		logger.Info("Starting userland phase")
+		logger.Info("👤 Starting userland phase")
 		if err := manager.ProcessItems(bootstrap.Userland, "userland"); err != nil {
 			return fmt.Errorf("userland phase failed: %w", err)
 		}
-		logger.Info("Userland phase completed successfully")
+		logger.Info("✅ Userland phase completed successfully")
 	}
 
-	logger.Info("All phases completed successfully")
+	logger.Info("🎉 All phases completed successfully")
 
 	// Perform cleanup and exit
-	manager.Cleanup("standalone completion")
-	// Perform manager cleanup, then exit with system cleanup
 	manager.Cleanup("standalone completion")
 	utils.Exit(cfg, logger, 0, "standalone successful completion")
 	return nil // This line will never be reached due to os.Exit

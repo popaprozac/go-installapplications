@@ -86,7 +86,7 @@ func (c *Client) SetRetryDefaults(retries, retryWaitSeconds int) {
 
 // DownloadFileWithRetries downloads a file with item-specific retry settings
 func (c *Client) DownloadFileWithRetries(url, filepath, expectedHash string, retries int, retryWait int) error {
-	c.logger.Info("Downloading %s to %s", url, filepath)
+	c.logger.Debug("Downloading %s to %s", url, filepath)
 
 	// Use client defaults if not specified
 	if retries == 0 {
@@ -160,7 +160,7 @@ func (c *Client) VerifyFileHash(filepath, expectedHash string) error {
 		return fmt.Errorf("hash mismatch: expected %s, got %s", expectedHash, actualHash)
 	}
 
-	c.logger.Info("Hash verification passed for %s", filepath)
+	c.logger.Debug("Hash verification passed for %s", filepath)
 	return nil
 }
 

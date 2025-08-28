@@ -101,6 +101,13 @@ func main() {
 		cfg.Mode = *modeFlag
 	}
 
+	// Check for required privileges early
+	if (cfg.Mode == "standalone" || cfg.Mode == "daemon") && !utils.IsRootUser() {
+		fmt.Printf("Error: %s mode requires root privileges (sudo)\n", cfg.Mode)
+		fmt.Printf("Please run with: sudo ./go-installapplications --mode %s [other options]\n", cfg.Mode)
+		os.Exit(1)
+	}
+
 	// Try to read from mobile config with graceful fallback
 	var profileResult *config.ProfileResult
 	if result, err := cfg.ReadFromProfile(*profileDomain); err != nil {
