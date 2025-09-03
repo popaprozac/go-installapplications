@@ -24,7 +24,7 @@ A modern, Go-based spiritual successor to [InstallApplications](https://github.c
 - **Fail Policy Support**: `failure_is_not_an_option`, `failable`, `failable_execution`
 - **Retry Logic**: Per-item retry settings with custom delays
 - **Package Receipt Checking**: `pkg_required` logic (skip if already installed)
-- **HTTP Redirect Following**: Automatic redirect handling
+- **HTTP Redirect Following**: Optional redirect following (disabled by default; enable with `--follow-redirects`)
 - **Background Process Tracking**: Optional tracking for `donotwait` items
 
 ### 🛠️ **Developer Experience**

@@ -46,8 +46,24 @@ func Exit(cfg *config.Config, logger *Logger, exitCode int, message string) {
 		logger.Info("Exiting with code %d: %s", exitCode, message)
 	}
 
+	// Honor daemon no-restart-on-error: coerce non-zero to 0 so launchd doesn't relaunch
+	if cfg.Mode == "daemon" && cfg.NoRestartOnError && exitCode != 0 {
+		logger.Info("no-restart-on-error enabled: coercing exit code %d to 0", exitCode)
+		exitCode = 0
+	}
+
 	// Always call cleanup (cleanup handles flag logic)
 	Cleanup(cfg, logger, "exit")
+
+	// Reboot only on successful completion
+	if cfg.Reboot && exitCode == 0 {
+		logger.Info("🔄 Reboot flag is set; system will reboot in 5 seconds")
+		time.Sleep(5 * time.Second)
+		cmd := exec.Command("/sbin/shutdown", "-r", "now")
+		if err := cmd.Start(); err != nil {
+			logger.Error("Failed to initiate reboot: %v", err)
+		}
+	}
 
 	os.Exit(exitCode)
 }
@@ -99,15 +115,6 @@ func Cleanup(cfg *config.Config, logger *Logger, cleanupType string) {
 		logger.Debug("Failed to boot out LaunchDaemon (may not be running): %v", err)
 	}
 
-	// Handle reboot if configured
-	if cfg.Reboot {
-		logger.Info("🔄 Reboot flag is set; system will reboot in 5 seconds")
-		time.Sleep(5 * time.Second)
-		cmd := exec.Command("/sbin/shutdown", "-r", "now")
-		if err := cmd.Start(); err != nil {
-			logger.Error("Failed to initiate reboot: %v", err)
-		}
-	}
-
+	// Reboot handling moved to Exit() to gate on success
 	logger.Info("✅ %s cleanup completed", cleanupType)
 }

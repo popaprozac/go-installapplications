@@ -258,44 +258,46 @@ func (c *Config) applySettingsMap(settings map[string]interface{}) error {
 			} else if seconds, err := strconv.Atoi(str); err == nil {
 				c.BackgroundTimeout = time.Duration(seconds) * time.Second
 			}
-			if val, exists := settings["DownloadMaxConcurrency"]; exists {
-				if i, ok := val.(int64); ok {
-					c.DownloadMaxConcurrency = int(i)
-				} else if i, ok := val.(int); ok {
-					c.DownloadMaxConcurrency = i
-				} else if str, ok := val.(string); ok {
-					if iv, err := strconv.Atoi(str); err == nil {
-						c.DownloadMaxConcurrency = iv
-					}
-				}
-			}
+		}
+	}
 
-			// IPC/coordination timeouts (accept seconds as int or duration string)
-			if val, exists := settings["WaitForAgentTimeout"]; exists {
-				if i, ok := val.(int64); ok {
-					c.WaitForAgentTimeout = time.Duration(i) * time.Second
-				} else if i, ok := val.(int); ok {
-					c.WaitForAgentTimeout = time.Duration(i) * time.Second
-				} else if str, ok := val.(string); ok {
-					if d, err := time.ParseDuration(str); err == nil {
-						c.WaitForAgentTimeout = d
-					} else if seconds, err := strconv.Atoi(str); err == nil {
-						c.WaitForAgentTimeout = time.Duration(seconds) * time.Second
-					}
-				}
+	// Download concurrency
+	if val, exists := settings["DownloadMaxConcurrency"]; exists {
+		if i, ok := val.(int64); ok {
+			c.DownloadMaxConcurrency = int(i)
+		} else if i, ok := val.(int); ok {
+			c.DownloadMaxConcurrency = i
+		} else if str, ok := val.(string); ok {
+			if iv, err := strconv.Atoi(str); err == nil {
+				c.DownloadMaxConcurrency = iv
 			}
-			if val, exists := settings["AgentRequestTimeout"]; exists {
-				if i, ok := val.(int64); ok {
-					c.AgentRequestTimeout = time.Duration(i) * time.Second
-				} else if i, ok := val.(int); ok {
-					c.AgentRequestTimeout = time.Duration(i) * time.Second
-				} else if str, ok := val.(string); ok {
-					if d, err := time.ParseDuration(str); err == nil {
-						c.AgentRequestTimeout = d
-					} else if seconds, err := strconv.Atoi(str); err == nil {
-						c.AgentRequestTimeout = time.Duration(seconds) * time.Second
-					}
-				}
+		}
+	}
+
+	// IPC/coordination timeouts (accept seconds as int or duration string)
+	if val, exists := settings["WaitForAgentTimeout"]; exists {
+		if i, ok := val.(int64); ok {
+			c.WaitForAgentTimeout = time.Duration(i) * time.Second
+		} else if i, ok := val.(int); ok {
+			c.WaitForAgentTimeout = time.Duration(i) * time.Second
+		} else if str, ok := val.(string); ok {
+			if d, err := time.ParseDuration(str); err == nil {
+				c.WaitForAgentTimeout = d
+			} else if seconds, err := strconv.Atoi(str); err == nil {
+				c.WaitForAgentTimeout = time.Duration(seconds) * time.Second
+			}
+		}
+	}
+	if val, exists := settings["AgentRequestTimeout"]; exists {
+		if i, ok := val.(int64); ok {
+			c.AgentRequestTimeout = time.Duration(i) * time.Second
+		} else if i, ok := val.(int); ok {
+			c.AgentRequestTimeout = time.Duration(i) * time.Second
+		} else if str, ok := val.(string); ok {
+			if d, err := time.ParseDuration(str); err == nil {
+				c.AgentRequestTimeout = d
+			} else if seconds, err := strconv.Atoi(str); err == nil {
+				c.AgentRequestTimeout = time.Duration(seconds) * time.Second
 			}
 		}
 	}

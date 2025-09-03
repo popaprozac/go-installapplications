@@ -101,6 +101,8 @@ func setupBootstrapAndComponents(cfg *config.Config, logger *utils.Logger) (*con
 		downloader = download.NewClient(logger)
 	}
 	downloader.SetRetryDefaults(cfg.MaxRetries, cfg.RetryDelay)
+	// Apply redirect behavior to item downloader as well
+	downloader.SetFollowRedirects(cfg.FollowRedirects)
 
 	systemInstaller := installer.NewSystemInstaller(cfg.DryRun, logger, false) // false = daemon mode (root)
 	manager := manager.NewManager(downloader, systemInstaller, cfg, logger)
