@@ -159,6 +159,17 @@ func getBootstrap(cfg *config.Config, logger *utils.Logger) (*config.Bootstrap, 
 
 		// honor follow-redirects compat flag
 		downloader.SetFollowRedirects(cfg.FollowRedirects)
+
+		// When skip_validation is false, remove existing bootstrap so we always re-download
+		if !cfg.SkipValidation {
+			if _, err := os.Stat(bootstrapPath); err == nil {
+				logger.Info("Removing and redownloading bootstrap.json")
+				if err := os.Remove(bootstrapPath); err != nil {
+					return nil, fmt.Errorf("failed to remove existing bootstrap for re-download: %w", err)
+				}
+			}
+		}
+
 		if err := downloader.DownloadFile(cfg.JSONURL, bootstrapPath, ""); err != nil {
 			return nil, fmt.Errorf("failed to download bootstrap: %w", err)
 		}
@@ -351,16 +362,15 @@ func processUserFile(item config.Item, sockPath string, cfg *config.Config, logg
 	return nil
 }
 
-// processPackage handles package installation with optional receipt checking
+// processPackage installs a package. Skips if already installed (version >= required) unless pkg_required is true.
 func processPackage(item config.Item, systemInstaller *installer.SystemInstaller, logger *utils.Logger) error {
-	// Optional: pkg_required check is handled in phase manager; perform simple install here
-	if item.PkgRequired {
-		isInstalled, checkErr := utils.CheckPackageReceipt(item.PackageID, item.Version, logger)
+	if !item.PkgRequired && item.PackageID != "" {
+		alreadySatisfied, checkErr := utils.CheckPackageReceipt(item.PackageID, item.Version, logger)
 		if checkErr != nil {
 			return fmt.Errorf("package receipt check failed: %w", checkErr)
 		}
-		if isInstalled {
-			logger.Info("⏭️  Package %s already installed - skipping", item.Name)
+		if alreadySatisfied {
+			logger.Info("⏭️  Skipping %s - already installed.", item.Name)
 			return nil
 		}
 	}

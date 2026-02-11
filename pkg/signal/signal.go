@@ -18,7 +18,7 @@ func CreateUserlandReady() error {
 		return err
 	}
 
-	// Create empty signal file (like original InstallApplications)
+	// Create empty signal file for phase coordination
 	file, err := os.Create(UserlandReadyFile)
 	if err != nil {
 		return err

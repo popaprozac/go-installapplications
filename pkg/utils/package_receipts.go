@@ -3,24 +3,75 @@ package utils
 import (
 	"fmt"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
-// CheckPackageReceipt checks if a package is installed using pkgutil
+// LooseVersionCompare compares two version strings. Returns -1 if a < b, 0 if a == b, 1 if a > b.
+// E.g. "10.6" and "10.6.0" are equal.
+func LooseVersionCompare(a, b string) int {
+	partsA := parseLooseVersion(a)
+	partsB := parseLooseVersion(b)
+	maxLen := len(partsA)
+	if len(partsB) > maxLen {
+		maxLen = len(partsB)
+	}
+	for i := 0; i < maxLen; i++ {
+		var va, vb int
+		if i < len(partsA) {
+			va = partsA[i]
+		}
+		if i < len(partsB) {
+			vb = partsB[i]
+		}
+		if va < vb {
+			return -1
+		}
+		if va > vb {
+			return 1
+		}
+	}
+	return 0
+}
+
+// parseLooseVersion splits a version string into numeric (and optionally trailing string) components.
+func parseLooseVersion(s string) []int {
+	if s == "" {
+		return nil
+	}
+	// Match digit sequences and optional non-digit suffix per segment (e.g. "1.0.0b1" -> 1, 0, 0)
+	re := regexp.MustCompile(`(\d+)|([a-zA-Z]+)|\.`)
+	parts := re.FindAllString(s, -1)
+	var result []int
+	for _, p := range parts {
+		if p == "." {
+			continue
+		}
+		if n, err := strconv.Atoi(p); err == nil {
+			result = append(result, n)
+		} else {
+			// Treat non-numeric as 0 for comparison (e.g. "b" in "1.0b1")
+			result = append(result, 0)
+		}
+	}
+	return result
+}
+
+// CheckPackageReceipt reports whether the package is installed and satisfies the required version (loose: installed >= required).
+// Caller skips install when true and pkg_required is false.
 func CheckPackageReceipt(packageID, version string, logger *Logger) (bool, error) {
 	if packageID == "" {
 		logger.Debug("No package ID provided - skipping receipt check")
-		return true, nil // If no packageID specified, assume it's okay
+		return false, nil // Not "already satisfied" so caller will proceed
 	}
 
 	logger.Debug("Checking package receipt for: %s", packageID)
 
-	// Check if package is installed
 	cmd := exec.Command("pkgutil", "--pkg-info", packageID)
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
-		// Package not installed
 		logger.Debug("Package %s not found in receipts", packageID)
 		return false, nil
 	}
@@ -28,26 +79,24 @@ func CheckPackageReceipt(packageID, version string, logger *Logger) (bool, error
 	outputStr := strings.TrimSpace(string(output))
 	logger.Verbose("Package receipt info for %s: %s", packageID, outputStr)
 
-	// If no version specified, just check existence
 	if version == "" {
 		logger.Debug("Package %s found in receipts (no version check)", packageID)
-		return true, nil
+		return true, nil // Exists, consider satisfied when no version required
 	}
 
-	// Check version if specified
 	installedVersion, err := extractVersionFromPkgInfo(outputStr)
 	if err != nil {
 		logger.Debug("Could not extract version from package receipt: %v", err)
-		return true, nil // If we can't parse version, assume it's okay
+		return false, nil // Can't parse -> don't skip, let install attempt proceed
 	}
 
-	if installedVersion == version {
-		logger.Debug("Package %s version %s matches required version", packageID, version)
+	cmp := LooseVersionCompare(installedVersion, version)
+	if cmp >= 0 {
+		logger.Debug("Package %s installed version %s >= required %s (loose)", packageID, installedVersion, version)
 		return true, nil
-	} else {
-		logger.Debug("Package %s installed version %s does not match required version %s", packageID, installedVersion, version)
-		return false, nil
 	}
+	logger.Debug("Package %s installed version %s < required %s", packageID, installedVersion, version)
+	return false, nil
 }
 
 // extractVersionFromPkgInfo extracts the version from pkgutil --pkg-info output

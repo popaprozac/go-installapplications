@@ -118,7 +118,7 @@ func (i *ItemList) Set(value string) error {
 func main() {
 	baseURL := flag.String("base-url", "", "Base URL to where root dir is hosted")
 	output := flag.String("output", "", "Required: Output directory for the generated json file")
-	compat := flag.Bool("compat", false, "Generate paths using original InstallApplications layout (/Library/installapplications)")
+	compat := flag.Bool("compat", false, "Use /Library/installapplications for generated paths")
 	installPathFlag := flag.String("install-path", "", "Override base install path used for scripts/packages (default: /Library/go-installapplications; ignored if --compat is set)")
 
 	var items ItemList

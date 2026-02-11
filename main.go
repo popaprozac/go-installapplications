@@ -35,7 +35,8 @@ func main() {
 	// Define command-line flags - use empty/false defaults so we can detect if they were set
 	jsonURL := flag.String("jsonurl", "", "URL to bootstrap JSON file")
 	installPath := flag.String("installpath", "", "Installation path (default: /Library/go-installapplications)")
-	compat := flag.Bool("compat", false, "Use original InstallApplications layout for internal paths (/Library/installapplications). Mutually exclusive with --installpath")
+	iapath := flag.String("iapath", "", "Install path (same as --installpath, e.g. /Library/installapplications)")
+	compat := flag.Bool("compat", false, "Use /Library/installapplications as install path. Mutually exclusive with --installpath")
 	debug := flag.Bool("debug", false, "Enable debug logging (default: false)")
 	verbose := flag.Bool("verbose", false, "Enable verbose logging (default: false)")
 	reboot := flag.Bool("reboot", false, "Reboot after completion (default: false)")
@@ -61,7 +62,7 @@ func main() {
 	waitForAgentTimeout := flag.Int("wait-for-agent-timeout", 86400, "How long daemon waits for agent socket (seconds)")
 	agentRequestTimeout := flag.Int("agent-request-timeout", 7200, "Timeout per agent RPC request (seconds)")
 
-	// Backwards-compat flags matching original InstallApplications
+	// Compat flags
 	followRedirects := flag.Bool("follow-redirects", false, "Follow HTTP redirects (default: false)")
 	headersAuth := flag.String("headers", "", "Authorization header value (e.g., 'Basic xxx' or 'Bearer yyy')")
 	laIdentifier := flag.String("laidentifier", "", "LaunchAgent identifier")
@@ -141,6 +142,9 @@ func main() {
 		cfg.InstallPath = "/Library/installapplications"
 	} else if flagsSet["installpath"] {
 		cfg.InstallPath = *installPath
+	}
+	if flagsSet["iapath"] && *iapath != "" {
+		cfg.InstallPath = *iapath
 	}
 	if flagsSet["debug"] {
 		cfg.Debug = *debug

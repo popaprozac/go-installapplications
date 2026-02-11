@@ -237,7 +237,7 @@ func (se *ScriptExecutor) executeAndHandleResult(cmd *exec.Cmd, scriptPath, scri
 	// Normal execution: wait for completion
 	output, err := cmd.CombinedOutput()
 
-	// Handle preflight exit code behavior (matches original InstallApplications)
+	// Preflight: exit 0 triggers cleanup and exit; non-zero continues bootstrap
 	if isPreflight && scriptType == "rootscript" {
 		return se.handlePreflightResult(err, output)
 	}

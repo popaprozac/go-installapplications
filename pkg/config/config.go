@@ -20,7 +20,7 @@ type Config struct {
 	// Cleanup settings
 	CleanupOnFailure bool `json:"cleanup_on_failure"`
 	KeepFailedFiles  bool `json:"keep_failed_files"`  // For debugging
-	CleanupOnSuccess bool `json:"cleanup_on_success"` // Remove installed artifacts after success (match original)
+	CleanupOnSuccess bool `json:"cleanup_on_success"` // Remove downloaded artifacts after success
 
 	// Execution settings
 	DryRun bool `json:"dry_run"` // Don't actually install/execute anything
@@ -33,7 +33,7 @@ type Config struct {
 	WaitForAgentTimeout time.Duration `json:"wait_for_agent_timeout"` // How long daemon waits for agent socket
 	AgentRequestTimeout time.Duration `json:"agent_request_timeout"`  // How long daemon waits for a single agent RPC
 
-	// HTTP Authentication settings (backwards compatibility with original InstallApplications)
+	// HTTP Authentication
 	HTTPAuthUser        string            `json:"http_auth_user,omitempty"`
 	HTTPAuthPassword    string            `json:"http_auth_password,omitempty"`
 	HTTPHeaders         map[string]string `json:"http_headers,omitempty"`         // Custom headers
@@ -48,7 +48,7 @@ type Config struct {
 	// Mode settings
 	Mode string `json:"mode"` // "daemon", "agent", or "standalone"
 
-	// Backwards-compat flags from original InstallApplications
+	// Compat flags
 	FollowRedirects        bool   `json:"follow_redirects"`
 	SkipValidation         bool   `json:"skip_validation"`
 	LaunchAgentIdentifier  string `json:"launch_agent_identifier"`

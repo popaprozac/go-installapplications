@@ -244,23 +244,22 @@ func (m *Manager) handleUserScript(item config.Item, backgroundProcessCount *int
 	return nil
 }
 
-// handlePackageInstallation handles package installation with pkg_required checking
+// handlePackageInstallation installs a package. Skips if already installed (version >= required) unless pkg_required is true.
 func (m *Manager) handlePackageInstallation(item config.Item) error {
-	// Check pkg_required before installation
-	if item.PkgRequired {
-		m.logger.Debug("Checking if package %s is already installed (pkg_required=true)", item.Name)
-		isInstalled, err := utils.CheckPackageReceipt(item.PackageID, item.Version, m.logger)
+	// When pkg_required is false (default): skip if already installed with satisfied version (loose >=).
+	// When pkg_required is true: always install, no skip based on receipt.
+	if !item.PkgRequired && item.PackageID != "" {
+		alreadySatisfied, err := utils.CheckPackageReceipt(item.PackageID, item.Version, m.logger)
 		if err != nil {
 			if shouldStopOnError := m.handleItemError(item, err, "package receipt check"); shouldStopOnError {
 				return fmt.Errorf("failed to check package receipt for %s: %w", item.Name, err)
 			}
-			return nil // Continue with next item
+			return nil
 		}
-		if isInstalled {
-			m.logger.Info("⏭️  Package %s already installed - skipping", item.Name)
-			return nil // Continue with next item
+		if alreadySatisfied {
+			m.logger.Info("⏭️  Skipping %s - already installed.", item.Name)
+			return nil
 		}
-		m.logger.Debug("Package %s not installed or version mismatch - proceeding with installation", item.Name)
 	}
 
 	err := m.installer.InstallPackage(item.File, "/")

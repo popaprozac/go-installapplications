@@ -177,9 +177,12 @@ Single configuration file for all modes + optional embedded bootstrap:
 ### 📦 Install paths and compatibility
 
 - `--installpath /Library/go-installapplications` (default) controls the program’s internal working directory (e.g., where the runtime may store bootstrap.json when downloaded). It does NOT rewrite `item.file` in your JSON; `item.file` always controls the actual destination of downloads and executions.
-- `--compat` sets the internal working directory to `/Library/installapplications` (original IA layout). It is mutually exclusive with `--installpath`.
-- Update your LaunchDaemon/LaunchAgent plists to include either `--compat` or an explicit `--installpath` so the daemon/agent use the intended layout in production.
+- `--iapath` sets the same directory (e.g. `--iapath /Library/installapplications`); useful when migrating from plists that already use this flag.
+- `--compat` sets the internal working directory to `/Library/installapplications`. It is mutually exclusive with `--installpath`.
+- Update your LaunchDaemon/LaunchAgent plists to include `--compat`, `--iapath`, or an explicit `--installpath` so the daemon/agent use the intended layout in production.
 - Tip: if you used `--compat` when generating `bootstrap.json` with the helper in `generatejson/`, you will usually want to run the main program with `--compat` as well to keep paths consistent.
+
+For flag-by-flag and JSON compatibility with the Python InstallApplications, see **[COMPATIBILITY.md](COMPATIBILITY.md)**.
 
 ### 📄 JSON Bootstrap Format
 
@@ -247,8 +250,8 @@ When using `--jsonurl` or for reference when creating embedded bootstrap:
 | **Verbose** | `false` | Enable verbose logging | All | `--verbose` |
 | **DryRun** | `false` | Simulate without executing | All | `--dry-run` |
 | **JSONURL** | `""` | Remote bootstrap URL | All | `--jsonurl` |
-| **InstallPath** | `/Library/go-installapplications` | Installation directory | All | `--installpath` |
-| **Compat** | `false` | Use original InstallApplications layout | All | `--compat` |
+| **InstallPath** | `/Library/go-installapplications` | Installation directory | All | `--installpath`, `--iapath` |
+| **Compat** | `false` | Use `/Library/installapplications` as install path | All | `--compat` |
 | **MaxRetries** | `3` | Maximum retry attempts | All | `--max-retries` |
 | **RetryDelay** | `5` | Delay between retries (seconds) | All | `--retry-delay` |
 | **TrackBackgroundProcesses** | `false` | Track `donotwait` processes | All | `--track-background-processes` |
@@ -281,7 +284,7 @@ When using `--jsonurl` or for reference when creating embedded bootstrap:
 | **retries** | `3` | Item-specific retry count | `0`, `5`, `10` |
 | **retrywait** | `5` | Retry delay in seconds | `3`, `10`, `30` |
 | **donotwait** | `false` | Execute in background | `true`, `false` |
-| **pkg_required** | `false` | Skip if package already installed | `true`, `false` |
+| **pkg_required** | `false` | When false, skip if package already installed (version ≥ required). When true, always install. JSON also accepts `required`. | `true`, `false` |
 | **fail_policy** | `failable_execution` | Error handling strategy | See table above |
 | **skip_if** | `""` | Skip based on architecture | `"intel"`, `"arm64"`, `"x86_64"`, `"apple_silicon"` |
 | **hash** | `""` | SHA256 hash for verification | `"sha256-abc123..."` |
@@ -318,10 +321,10 @@ When using `--jsonurl` or for reference when creating embedded bootstrap:
 
 ### Preflight Phase Behavior
 
-The `preflight` phase has special exit code handling for backwards compatibility with the original InstallApplications:
+The `preflight` phase has special exit code handling:
 
 **Exit Code Behavior:**
-- **Exit code 0**: Full cleanup and exit immediately (matches original InstallApplications)
+- **Exit code 0**: Full cleanup and exit immediately
   - Remove downloaded files (if `CleanupOnSuccess=true`)
   - Remove LaunchDaemon and LaunchAgent plist files
   - Boot out daemon and agent services
@@ -360,7 +363,7 @@ Use mobileconfig keys:
 
 CLI conveniences:
 - `--headers "Bearer TOKEN"` sets `Authorization: Bearer TOKEN`
-- `--follow-redirects` to control HTTP 30x following (default: false). By default, downloads do not follow redirects; enabling this flag will follow 3xx responses. This differs from Go's default behavior to maintain compatibility with original InstallApplications.
+- `--follow-redirects` to control HTTP 30x following (default: false). By default, downloads do not follow redirects; enable this flag to follow 3xx responses.
 
 See the shortened guide in `HTTP_AUTH.md` for details.
 
@@ -462,6 +465,7 @@ make package-universal
 
 ## 📚 Documentation
 
+- **[COMPATIBILITY.md](COMPATIBILITY.md)**: Flag and JSON compatibility with the Python InstallApplications; package receipt and version semantics; intentional differences (e.g. optional hash, userscript path, log paths).
 - **[HTTP Authentication Guide](HTTP_AUTH.md)**: Authentication configuration (mobileconfig + CLI)
 - **[Build Guide](BUILD.md)**: Building and packaging instructions
 

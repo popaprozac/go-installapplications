@@ -195,7 +195,6 @@ func (c *Client) downloadOnce(url, filepath string) error {
 		}
 	}
 
-	// Set User-Agent (matching original InstallApplications behavior)
 	req.Header.Set("User-Agent", "go-installapplications/1.0")
 
 	// Log request headers in verbose mode (mask secret values)

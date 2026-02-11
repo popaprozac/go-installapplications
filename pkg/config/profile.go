@@ -366,7 +366,7 @@ func (c *Config) applySettingsMap(settings map[string]interface{}) error {
 		}
 	}
 
-	// Convenience: single Authorization header value (original --headers)
+	// Single Authorization header (--headers)
 	if val, exists := settings["HeaderAuthorization"]; exists {
 		if str, ok := val.(string); ok && str != "" {
 			c.HeaderAuthorization = str

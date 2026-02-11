@@ -30,8 +30,8 @@ type Item struct {
 
 	// Execution control
 	DoNotWait   bool   `json:"donotwait,omitempty"`
-	PkgRequired bool   `json:"pkg_required,omitempty"`
-	SkipIf      string `json:"skip_if,omitempty"` // "x86_64", "intel", "arm64", "apple_silicon"
+	PkgRequired bool   `json:"pkg_required,omitempty"` // UnmarshalJSON also accepts "required"
+	SkipIf      string `json:"skip_if,omitempty"`     // "x86_64", "intel", "arm64", "apple_silicon"
 
 	// Retry settings (NEW)
 	Retries   int `json:"retries,omitempty"`
@@ -39,6 +39,46 @@ type Item struct {
 
 	// Failure handling policy from Swift version
 	FailPolicy string `json:"fail_policy,omitempty"` // "failable", "failable_execution", "failure_is_not_an_option"
+}
+
+// itemRaw is used for JSON unmarshaling so both "pkg_required" and "required" set PkgRequired.
+type itemRaw struct {
+	File        string `json:"file"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	URL         string `json:"url,omitempty"`
+	Hash        string `json:"hash,omitempty"`
+	PackageID   string `json:"packageid,omitempty"`
+	Version     string `json:"version,omitempty"`
+	DoNotWait   bool   `json:"donotwait,omitempty"`
+	PkgRequired bool   `json:"pkg_required,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+	SkipIf      string `json:"skip_if,omitempty"`
+	Retries     int    `json:"retries,omitempty"`
+	RetryWait   int    `json:"retrywait,omitempty"`
+	FailPolicy  string `json:"fail_policy,omitempty"`
+}
+
+// UnmarshalJSON accepts both "pkg_required" and "required" for PkgRequired.
+func (i *Item) UnmarshalJSON(data []byte) error {
+	var raw itemRaw
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	i.File = raw.File
+	i.Name = raw.Name
+	i.Type = raw.Type
+	i.URL = raw.URL
+	i.Hash = raw.Hash
+	i.PackageID = raw.PackageID
+	i.Version = raw.Version
+	i.DoNotWait = raw.DoNotWait
+	i.PkgRequired = raw.PkgRequired || raw.Required
+	i.SkipIf = raw.SkipIf
+	i.Retries = raw.Retries
+	i.RetryWait = raw.RetryWait
+	i.FailPolicy = raw.FailPolicy
+	return nil
 }
 
 // LoadBootstrap loads bootstrap JSON from a file (validates structure)
@@ -72,9 +112,9 @@ func LoadBootstrapWithOptions(filename string, validate bool) (*Bootstrap, error
 
 // ValidateBootstrap validates that items are appropriate for their phases
 func ValidateBootstrap(bootstrap *Bootstrap) error {
-	// Validate preflight phase - original InstallApplications only allows single rootscript
+	// Preflight supports a single rootscript only
 	if len(bootstrap.Preflight) > 1 {
-		return fmt.Errorf("preflight phase only supports a single rootscript (original InstallApplications compatibility)")
+		return fmt.Errorf("preflight phase only supports a single rootscript")
 	}
 	for _, item := range bootstrap.Preflight {
 		if err := validateItemForPhase(item, "preflight"); err != nil {
