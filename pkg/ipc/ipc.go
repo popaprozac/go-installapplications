@@ -49,21 +49,37 @@ func EnsureSocketDir() error {
 	return nil
 }
 
-// RPCRequest represents a request from the daemon to the agent
+// RPCRequest represents a request from the daemon to the agent.
+//
+// Supported commands:
+//   - Ping                       — readiness probe
+//   - Shutdown                   — request graceful exit (idempotent)
+//   - RunUserScript              — execute a userscript at Path (DoNotWait => background)
+//   - PlaceUserFile              — chmod a user file at Path
+//   - WaitForBackgroundProcesses — block until tracked donotwait processes
+//                                  finish or TimeoutSeconds elapses
+//   - GetBackgroundProcessCount  — return current tracked count in Count
 type RPCRequest struct {
-	ID        string `json:"id"`
-	Command   string `json:"command"` // RunUserScript | PlaceUserFile | Ping | Shutdown
-	Path      string `json:"path,omitempty"`
-	Source    string `json:"source,omitempty"`
-	DoNotWait bool   `json:"donotwait,omitempty"`
+	ID             string `json:"id"`
+	Command        string `json:"command"`
+	Path           string `json:"path,omitempty"`
+	Source         string `json:"source,omitempty"`
+	DoNotWait      bool   `json:"donotwait,omitempty"`
+	TimeoutSeconds int    `json:"timeoutSeconds,omitempty"`
 }
 
-// RPCResponse represents a response from the agent back to the daemon
+// RPCResponse represents a response from the agent back to the daemon.
+//
+// Count carries the result of GetBackgroundProcessCount.
+// Errors carries per-process error strings from WaitForBackgroundProcesses
+// (non-empty means at least one tracked process failed or timed out).
 type RPCResponse struct {
-	ID       string `json:"id"`
-	OK       bool   `json:"ok"`
-	Started  bool   `json:"started,omitempty"`
-	ExitCode int    `json:"exitCode,omitempty"`
-	Output   string `json:"output,omitempty"`
-	Error    string `json:"error,omitempty"`
+	ID       string   `json:"id"`
+	OK       bool     `json:"ok"`
+	Started  bool     `json:"started,omitempty"`
+	ExitCode int      `json:"exitCode,omitempty"`
+	Output   string   `json:"output,omitempty"`
+	Error    string   `json:"error,omitempty"`
+	Count    int      `json:"count,omitempty"`
+	Errors   []string `json:"errors,omitempty"`
 }

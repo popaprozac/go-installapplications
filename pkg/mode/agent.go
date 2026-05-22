@@ -2,6 +2,7 @@ package mode
 
 import (
 	"sync"
+	"time"
 
 	"github.com/go-installapplications/pkg/config"
 	"github.com/go-installapplications/pkg/installer"
@@ -12,6 +13,11 @@ import (
 // RunAgent executes the agent mode workflow
 func RunAgent(cfg *config.Config, logger *utils.Logger) {
 	logger.Info("Starting agent mode")
+
+	// A single long-lived SystemInstaller so its ProcessTracker survives across
+	// requests. Without this, donotwait userscripts would be tracked in a
+	// per-request tracker that gets GC'd, defeating TrackBackgroundProcesses.
+	systemInstaller := installer.NewSystemInstaller(cfg.DryRun, logger, true)
 
 	// Start IPC server to receive requests from daemon for user-context actions.
 	// shutdownOnce guards close(done) so repeated Shutdown commands cannot panic.
@@ -26,24 +32,31 @@ func RunAgent(cfg *config.Config, logger *utils.Logger) {
 			shutdownOnce.Do(func() { close(done) })
 			return ipc.RPCResponse{ID: req.ID, OK: true}
 		case "RunUserScript":
-			installer := installer.NewSystemInstaller(cfg.DryRun, logger, true)
-			if req.DoNotWait {
-				// For now, we treat donotwait as immediate start; background tracking remains local
-				if err := installer.ExecuteScript(req.Path, "userscript", true, cfg.TrackBackgroundProcesses); err != nil {
-					return ipc.RPCResponse{ID: req.ID, OK: false, Error: err.Error()}
-				}
-				return ipc.RPCResponse{ID: req.ID, OK: true, Started: true}
-			}
-			if err := installer.ExecuteScript(req.Path, "userscript", false, cfg.TrackBackgroundProcesses); err != nil {
+			if err := systemInstaller.ExecuteScript(req.Path, "userscript", req.DoNotWait, cfg.TrackBackgroundProcesses); err != nil {
 				return ipc.RPCResponse{ID: req.ID, OK: false, Error: err.Error()}
 			}
-			return ipc.RPCResponse{ID: req.ID, OK: true}
+			return ipc.RPCResponse{ID: req.ID, OK: true, Started: req.DoNotWait}
 		case "PlaceUserFile":
-			installer := installer.NewSystemInstaller(cfg.DryRun, logger, true)
-			if err := installer.PlaceFile(req.Path, "userfile"); err != nil {
+			if err := systemInstaller.PlaceFile(req.Path, "userfile"); err != nil {
 				return ipc.RPCResponse{ID: req.ID, OK: false, Error: err.Error()}
 			}
 			return ipc.RPCResponse{ID: req.ID, OK: true}
+		case "GetBackgroundProcessCount":
+			return ipc.RPCResponse{ID: req.ID, OK: true, Count: systemInstaller.GetBackgroundProcessCount()}
+		case "WaitForBackgroundProcesses":
+			timeout := time.Duration(req.TimeoutSeconds) * time.Second
+			if timeout <= 0 {
+				timeout = cfg.BackgroundTimeout
+			}
+			errs := systemInstaller.WaitForBackgroundProcesses(timeout)
+			if len(errs) == 0 {
+				return ipc.RPCResponse{ID: req.ID, OK: true}
+			}
+			strs := make([]string, 0, len(errs))
+			for _, e := range errs {
+				strs = append(strs, e.Error())
+			}
+			return ipc.RPCResponse{ID: req.ID, OK: false, Errors: strs, Error: strs[0]}
 		default:
 			return ipc.RPCResponse{ID: req.ID, OK: false, Error: "unknown command"}
 		}

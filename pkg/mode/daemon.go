@@ -3,6 +3,7 @@ package mode
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/go-installapplications/pkg/config"
 	"github.com/go-installapplications/pkg/download"
@@ -294,7 +295,7 @@ func processUserlandPhase(userlandItems []config.Item, downloader *download.Clie
 
 	// Process userland items in declared order
 	logger.Info("Starting ordered userland processing")
-	var backgroundProcessCount int
+	var daemonBackgroundCount, agentBackgroundCount int
 
 	for i, item := range successItems {
 		logger.Info("Userland item %d/%d: %s (%s)", i+1, len(successItems), item.Name, item.Type)
@@ -307,7 +308,7 @@ func processUserlandPhase(userlandItems []config.Item, downloader *download.Clie
 			opName, opErr = "script execution", processUserScript(item, sockPath, cfg, logger)
 			if opErr == nil {
 				if item.DoNotWait {
-					backgroundProcessCount++
+					agentBackgroundCount++
 					logger.Info("✅ User script delegated (background): %s", item.Name)
 				} else {
 					logger.Info("✅ User script completed: %s", item.Name)
@@ -327,7 +328,7 @@ func processUserlandPhase(userlandItems []config.Item, downloader *download.Clie
 			opName, opErr = "script execution", systemInstaller.ExecuteScript(item.File, "rootscript", item.DoNotWait, cfg.TrackBackgroundProcesses)
 			if opErr == nil {
 				if item.DoNotWait {
-					backgroundProcessCount++
+					daemonBackgroundCount++
 					logger.Info("✅ Root script started in background: %s", item.Name)
 				} else {
 					logger.Info("✅ Root script executed: %s", item.Name)
@@ -358,20 +359,45 @@ func processUserlandPhase(userlandItems []config.Item, downloader *download.Clie
 		}
 	}
 
-	// Wait for background processes started by the daemon during userland.
-	// Note: agent-spawned user scripts with donotwait=true are tracked locally inside the
-	// agent's process tracker and are not waited on across IPC.
-	if backgroundProcessCount > 0 && cfg.TrackBackgroundProcesses {
-		logger.Info("Waiting for %d daemon-side background processes to complete", backgroundProcessCount)
-		errors := systemInstaller.WaitForBackgroundProcesses(cfg.BackgroundTimeout)
-		if len(errors) > 0 {
-			logger.Error("Background process errors in userland:")
-			for _, e := range errors {
-				logger.Error("  - %v", e)
+	// Drain background processes. Agent-side first (user scripts) so a slow
+	// userscript doesn't block on the daemon's wait. Both are gated on
+	// TrackBackgroundProcesses — when tracking is off, donotwait items are
+	// fire-and-forget and there is nothing to wait for on either side.
+	if cfg.TrackBackgroundProcesses {
+		if agentBackgroundCount > 0 && sockPath != "" {
+			logger.Info("Waiting for %d agent-side background processes to complete", agentBackgroundCount)
+			timeoutSec := int(cfg.BackgroundTimeout / time.Second)
+			if timeoutSec <= 0 {
+				timeoutSec = 300
 			}
-			return fmt.Errorf("background processes failed: %d errors", len(errors))
+			resp, err := callAgent(logger, sockPath, ipc.RPCRequest{
+				Command:        "WaitForBackgroundProcesses",
+				TimeoutSeconds: timeoutSec,
+			}, cfg.AgentRequestTimeout)
+			if err != nil {
+				return fmt.Errorf("agent background wait IPC failed: %w", err)
+			}
+			if !resp.OK {
+				for _, e := range resp.Errors {
+					logger.Error("  - %s", e)
+				}
+				return fmt.Errorf("agent background processes failed: %d errors", len(resp.Errors))
+			}
+			logger.Info("All agent-side background processes completed successfully")
 		}
-		logger.Info("All background processes completed successfully")
+
+		if daemonBackgroundCount > 0 {
+			logger.Info("Waiting for %d daemon-side background processes to complete", daemonBackgroundCount)
+			errors := systemInstaller.WaitForBackgroundProcesses(cfg.BackgroundTimeout)
+			if len(errors) > 0 {
+				logger.Error("Background process errors in userland:")
+				for _, e := range errors {
+					logger.Error("  - %v", e)
+				}
+				return fmt.Errorf("background processes failed: %d errors", len(errors))
+			}
+			logger.Info("All daemon-side background processes completed successfully")
+		}
 	}
 
 	logger.Info("Userland processing completed")
