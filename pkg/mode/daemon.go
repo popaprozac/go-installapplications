@@ -104,6 +104,7 @@ func setupBootstrapAndComponents(cfg *config.Config, logger *utils.Logger) (*con
 	downloader.SetRetryDefaults(cfg.MaxRetries, cfg.RetryDelay)
 	// Apply redirect behavior to item downloader as well
 	downloader.SetFollowRedirects(cfg.FollowRedirects)
+	downloader.SetHashCheckPolicy(download.ParseHashCheckPolicy(cfg.HashCheckPolicy))
 
 	systemInstaller := installer.NewSystemInstaller(cfg.DryRun, logger, false) // false = daemon mode (root)
 	manager := manager.NewManager(downloader, systemInstaller, cfg, logger)
@@ -160,6 +161,7 @@ func getBootstrap(cfg *config.Config, logger *utils.Logger) (*config.Bootstrap, 
 
 		// honor follow-redirects compat flag
 		downloader.SetFollowRedirects(cfg.FollowRedirects)
+		downloader.SetHashCheckPolicy(download.ParseHashCheckPolicy(cfg.HashCheckPolicy))
 
 		// When skip_validation is false, remove existing bootstrap so we always re-download
 		if !cfg.SkipValidation {

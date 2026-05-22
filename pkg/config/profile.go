@@ -265,6 +265,12 @@ func (c *Config) applySettingsMap(settings map[string]interface{}) error {
 		}
 	}
 
+	if val, exists := settings["HashCheckPolicy"]; exists {
+		if str, ok := val.(string); ok && str != "" {
+			c.HashCheckPolicy = str
+		}
+	}
+
 	if val, exists := settings["DryRun"]; exists {
 		if b, ok := val.(bool); ok {
 			c.DryRun = b

@@ -73,6 +73,8 @@ func main() {
 	httpAuthUser := flag.String("http-auth-user", "", "HTTP Basic Auth username")
 	httpAuthPassword := flag.String("http-auth-password", "", "HTTP Basic Auth password")
 
+	hashCheckPolicy := flag.String("hash-check-policy", "", "Hash check policy: Strict (require hash, fail on mismatch), Warning (accept missing, fail on mismatch — default), Ignore (accept missing and mismatches)")
+
 	// Remote logging NOT YET IMPLEMENTED
 	// logDestination := flag.String("log-destination", "", "Remote log destination URL (optional)")
 	// logProvider := flag.String("log-provider", "", "Remote log provider: generic|datadog (optional)")
@@ -225,6 +227,10 @@ func main() {
 	}
 	if flagsSet["http-auth-password"] {
 		cfg.HTTPAuthPassword = *httpAuthPassword
+	}
+
+	if flagsSet["hash-check-policy"] && *hashCheckPolicy != "" {
+		cfg.HashCheckPolicy = *hashCheckPolicy
 	}
 
 	// Create logger (with file logging for standalone mode)

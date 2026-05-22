@@ -54,6 +54,15 @@ type Config struct {
 	LaunchAgentIdentifier  string `json:"launch_agent_identifier"`
 	LaunchDaemonIdentifier string `json:"launch_daemon_identifier"`
 
+	// HashCheckPolicy controls how missing / mismatching SHA-256 hashes are
+	// treated on downloads (case-insensitive):
+	//   - "Strict":  missing hash is a download failure; mismatches fail.
+	//   - "Warning": missing hash is allowed (with a log warning);
+	//                mismatches fail. (default)
+	//   - "Ignore":  missing hash is silently allowed; mismatches log a
+	//                warning but do not fail.
+	HashCheckPolicy string `json:"hash_check_policy"`
+
 	RetainLogFiles bool `json:"retain_log_files"` // Retain log files from previous runs
 
 	WithPreflight    bool `json:"with_preflight"`      // Run preflight phase in standalone mode
@@ -101,6 +110,10 @@ func NewConfig() *Config {
 		SkipValidation:         false,
 		LaunchAgentIdentifier:  "com.github.go-installapplications.agent",
 		LaunchDaemonIdentifier: "com.github.go-installapplications.daemon",
+
+		// Hash policy default matches pre-policy behavior: accept missing hash,
+		// fail on mismatch.
+		HashCheckPolicy: "Warning",
 
 		RetainLogFiles: false, // Create a new log file for each run
 
@@ -183,6 +196,7 @@ func (c *Config) RedactedForLogging() map[string]interface{} {
 		"SkipValidation":         c.SkipValidation,
 		"LaunchAgentIdentifier":  c.LaunchAgentIdentifier,
 		"LaunchDaemonIdentifier": c.LaunchDaemonIdentifier,
+		"HashCheckPolicy":        c.HashCheckPolicy,
 		// Bootstrap
 		"withPreflight": c.WithPreflight,
 	}

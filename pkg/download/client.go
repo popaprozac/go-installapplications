@@ -6,10 +6,52 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-installapplications/pkg/utils"
 )
+
+// HashCheckPolicy controls the verifier's treatment of missing/mismatching hashes.
+type HashCheckPolicy int
+
+const (
+	// HashCheckWarning accepts missing hashes (with a log warning) and fails on
+	// mismatch. This is the default and matches pre-policy behavior.
+	HashCheckWarning HashCheckPolicy = iota
+	// HashCheckStrict requires a hash on every download with a URL and fails on
+	// mismatch. Closest to original Python InstallApplications behavior.
+	HashCheckStrict
+	// HashCheckIgnore silently accepts missing hashes and logs (but does not
+	// fail on) mismatches.
+	HashCheckIgnore
+)
+
+// ParseHashCheckPolicy maps user-supplied strings (case-insensitive) to a
+// HashCheckPolicy. Unknown values default to Warning so a typo in a config
+// can't accidentally weaken or harden security without a clear signal in logs.
+func ParseHashCheckPolicy(s string) HashCheckPolicy {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "strict":
+		return HashCheckStrict
+	case "ignore":
+		return HashCheckIgnore
+	default:
+		return HashCheckWarning
+	}
+}
+
+// String returns the canonical name for a HashCheckPolicy.
+func (p HashCheckPolicy) String() string {
+	switch p {
+	case HashCheckStrict:
+		return "Strict"
+	case HashCheckIgnore:
+		return "Ignore"
+	default:
+		return "Warning"
+	}
+}
 
 // Client handles HTTP downloads
 type Client struct {
@@ -21,6 +63,7 @@ type Client struct {
 	defaultRetries   int
 	defaultRetryWait int // seconds
 	followRedirects  bool
+	hashPolicy       HashCheckPolicy
 }
 
 // NewClient creates a new download client
@@ -84,6 +127,11 @@ func (c *Client) SetRetryDefaults(retries, retryWaitSeconds int) {
 	}
 }
 
+// SetHashCheckPolicy configures how the verifier handles missing/mismatching hashes.
+func (c *Client) SetHashCheckPolicy(p HashCheckPolicy) {
+	c.hashPolicy = p
+}
+
 // DownloadFileWithRetries downloads a file with item-specific retry settings
 func (c *Client) DownloadFileWithRetries(url, filepath, expectedHash string, retries int, retryWait int) error {
 	c.logger.Debug("Downloading %s to %s", url, filepath)
@@ -127,11 +175,21 @@ func (c *Client) DownloadFile(url, filepath, expectedHash string) error {
 	return c.DownloadFileWithRetries(url, filepath, expectedHash, 0, 0)
 }
 
-// VerifyFileHash checks if a file matches the expected SHA256 hash
+// VerifyFileHash checks if a file matches the expected SHA256 hash. The
+// behavior for missing/mismatching hashes depends on the client's configured
+// HashCheckPolicy (default: Warning).
 func (c *Client) VerifyFileHash(filepath, expectedHash string) error {
 	if expectedHash == "" {
-		c.logger.Debug("No hash provided for %s, skipping verification", filepath)
-		return nil // No hash to verify
+		switch c.hashPolicy {
+		case HashCheckStrict:
+			return fmt.Errorf("hash is required for %s under HashCheckPolicy=Strict", filepath)
+		case HashCheckIgnore:
+			c.logger.Debug("No hash provided for %s; HashCheckPolicy=Ignore — accepting", filepath)
+			return nil
+		default: // Warning
+			c.logger.Info("⚠️  No hash provided for %s; HashCheckPolicy=Warning — accepting (use Strict to require)", filepath)
+			return nil
+		}
 	}
 
 	c.logger.Debug("Verifying hash for %s", filepath)
@@ -159,6 +217,10 @@ func (c *Client) VerifyFileHash(filepath, expectedHash string) error {
 
 	// Compare hashes
 	if actualHash != expectedHash {
+		if c.hashPolicy == HashCheckIgnore {
+			c.logger.Info("⚠️  Hash mismatch for %s (expected %s, got %s); HashCheckPolicy=Ignore — accepting", filepath, expectedHash, actualHash)
+			return nil
+		}
 		return fmt.Errorf("hash mismatch: expected %s, got %s", expectedHash, actualHash)
 	}
 

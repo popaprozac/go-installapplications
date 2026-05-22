@@ -273,6 +273,7 @@ When using `--jsonurl` or for reference when creating embedded bootstrap:
 | **FollowRedirects** | `false` | Follow HTTP redirects | All | `--follow-redirects` |
 | **SkipValidation** | `false` | Skip bootstrap.json validation | All | `--skip-validation` |
 | **WithPreflight** | `false` | Enable preflight phase in standalone mode | Standalone | `--with-preflight` |
+| **HashCheckPolicy** | `Warning` | How to handle missing / mismatching SHA-256 hashes: `Strict` (require hash, fail on mismatch), `Warning` (accept missing, fail on mismatch — default), `Ignore` (accept missing and mismatches) | All | `--hash-check-policy` |
 | **NoRestartOnError** | `false` | Exit with code 0 on errors to prevent daemon restart | Daemon | `--no-restart-on-error` |
 | **LaunchAgentIdentifier** | `com.github.go-installapplications.agent` | LaunchAgent identifier | All | `--laidentifier` |
 | **LaunchDaemonIdentifier** | `com.github.go-installapplications.daemon` | LaunchDaemon identifier | All | `--ldidentifier` |
