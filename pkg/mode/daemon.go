@@ -3,6 +3,7 @@ package mode
 import (
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/go-installapplications/pkg/config"
@@ -295,70 +296,67 @@ func processUserlandPhase(userlandItems []config.Item, downloader *download.Clie
 		logger.Debug("No user-context items in userland; skipping wait for agent socket")
 	}
 
-	// Process userland items in declared order
+	// Process userland items in declared order, batched by parallel_group.
 	logger.Info("Starting ordered userland processing")
 	var daemonBackgroundCount, agentBackgroundCount int
 
-	for i, item := range successItems {
-		logger.Info("Userland item %d/%d: %s (%s)", i+1, len(successItems), item.Name, item.Type)
-		var (
-			opName string
-			opErr  error
-		)
-		switch item.Type {
-		case "userscript":
-			opName, opErr = "script execution", processUserScript(item, sockPath, cfg, logger)
-			if opErr == nil {
-				if item.DoNotWait {
-					agentBackgroundCount++
-					logger.Info("✅ User script delegated (background): %s", item.Name)
-				} else {
-					logger.Info("✅ User script completed: %s", item.Name)
+	batches := config.BatchByParallelGroup(successItems)
+	for _, batch := range batches {
+		if len(batch) == 1 {
+			item := batch[0]
+			res := runUserlandItem(item, sockPath, needsAgent, systemInstaller, cfg, logger)
+			daemonBackgroundCount += res.daemonBg
+			agentBackgroundCount += res.agentBg
+			if res.err != nil {
+				policy := item.GetEffectiveFailPolicy()
+				if item.ShouldStopOnError(res.operation) {
+					logger.Error("❌ %s failed for %s (fail_policy: %s): %v", res.operation, item.Name, policy, res.err)
+					if needsAgent && sockPath != "" {
+						if _, err := callAgent(logger, sockPath, ipc.RPCRequest{Command: "Shutdown"}, cfg.AgentRequestTimeout); err != nil {
+							logger.Debug("Agent shutdown request failed (non-fatal): %v", err)
+						}
+					}
+					return fmt.Errorf("userland %s failed for %s: %w", res.operation, item.Name, res.err)
 				}
+				logger.Info("⚠️  %s failed for %s (fail_policy: %s): %v - continuing", res.operation, item.Name, policy, res.err)
 			}
-		case "userfile":
-			opName, opErr = "file placement", processUserFile(item, sockPath, cfg, logger)
-			if opErr == nil {
-				logger.Info("✅ User file placed: %s", item.Name)
-			}
-		case "package":
-			opName, opErr = "package installation", processPackage(item, systemInstaller, logger)
-			if opErr == nil {
-				logger.Info("✅ Package installed: %s", item.Name)
-			}
-		case "rootscript":
-			opName, opErr = "script execution", systemInstaller.ExecuteScript(item.File, "rootscript", item.DoNotWait, cfg.TrackBackgroundProcesses)
-			if opErr == nil {
-				if item.DoNotWait {
-					daemonBackgroundCount++
-					logger.Info("✅ Root script started in background: %s", item.Name)
-				} else {
-					logger.Info("✅ Root script executed: %s", item.Name)
-				}
-			}
-		case "rootfile":
-			opName, opErr = "file placement", systemInstaller.PlaceFile(item.File, "rootfile")
-			if opErr == nil {
-				logger.Info("✅ Root file placed: %s", item.Name)
-			}
-		default:
-			logger.Info("⚠️  Unknown item type: %s for %s", item.Type, item.Name)
 			continue
 		}
 
-		if opErr != nil {
+		// Parallel batch
+		groupName := batch[0].ParallelGroup
+		logger.Info("🔀 parallel_group %q: running %d userland items concurrently", groupName, len(batch))
+		results := make([]userlandResult, len(batch))
+		var wg sync.WaitGroup
+		for i := range batch {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				results[i] = runUserlandItem(batch[i], sockPath, needsAgent, systemInstaller, cfg, logger)
+			}(i)
+		}
+		wg.Wait()
+
+		for idx, res := range results {
+			item := batch[idx]
+			daemonBackgroundCount += res.daemonBg
+			agentBackgroundCount += res.agentBg
+			if res.err == nil {
+				continue
+			}
 			policy := item.GetEffectiveFailPolicy()
-			if item.ShouldStopOnError(opName) {
-				logger.Error("❌ %s failed for %s (fail_policy: %s): %v", opName, item.Name, policy, opErr)
+			if item.ShouldStopOnError(res.operation) {
+				logger.Error("❌ %s failed for %s (fail_policy: %s, parallel_group=%q): %v", res.operation, item.Name, policy, groupName, res.err)
 				if needsAgent && sockPath != "" {
 					if _, err := callAgent(logger, sockPath, ipc.RPCRequest{Command: "Shutdown"}, cfg.AgentRequestTimeout); err != nil {
 						logger.Debug("Agent shutdown request failed (non-fatal): %v", err)
 					}
 				}
-				return fmt.Errorf("userland %s failed for %s: %w", opName, item.Name, opErr)
+				return fmt.Errorf("parallel_group %q: %s failed for %s: %w", groupName, res.operation, item.Name, res.err)
 			}
-			logger.Info("⚠️  %s failed for %s (fail_policy: %s): %v - continuing", opName, item.Name, policy, opErr)
+			logger.Info("⚠️  %s failed for %s (fail_policy: %s, parallel_group=%q): %v - continuing", res.operation, item.Name, policy, groupName, res.err)
 		}
+		logger.Info("✅ parallel_group %q complete", groupName)
 	}
 
 	// Drain background processes. Agent-side first (user scripts) so a slow
@@ -415,6 +413,75 @@ func processUserlandPhase(userlandItems []config.Item, downloader *download.Clie
 		logger.Info("Userland phase completed with %d tolerated download failures", len(downloadErrByName))
 	}
 	return nil
+}
+
+// userlandResult is the per-item outcome of runUserlandItem. daemonBg and
+// agentBg are 0 or 1 depending on whether a tracked background process was
+// started on the daemon or the agent side respectively.
+type userlandResult struct {
+	operation string
+	err       error
+	daemonBg  int
+	agentBg   int
+}
+
+// runUserlandItem dispatches a single userland item without consulting
+// fail_policy. The caller decides whether to abort.
+func runUserlandItem(item config.Item, sockPath string, _ bool, si *installer.SystemInstaller, cfg *config.Config, logger *utils.Logger) userlandResult {
+	switch item.Type {
+	case "userscript":
+		res := userlandResult{operation: "script execution"}
+		res.err = processUserScript(item, sockPath, cfg, logger)
+		if res.err == nil {
+			if item.DoNotWait && cfg.TrackBackgroundProcesses {
+				res.agentBg = 1
+				logger.Info("✅ User script delegated (background): %s", item.Name)
+			} else if item.DoNotWait {
+				logger.Info("✅ User script delegated (fire-and-forget): %s", item.Name)
+			} else {
+				logger.Info("✅ User script completed: %s", item.Name)
+			}
+		}
+		return res
+	case "userfile":
+		res := userlandResult{operation: "file placement"}
+		res.err = processUserFile(item, sockPath, cfg, logger)
+		if res.err == nil {
+			logger.Info("✅ User file placed: %s", item.Name)
+		}
+		return res
+	case "package":
+		res := userlandResult{operation: "package installation"}
+		res.err = processPackage(item, si, logger)
+		if res.err == nil {
+			logger.Info("✅ Package installed: %s", item.Name)
+		}
+		return res
+	case "rootscript":
+		res := userlandResult{operation: "script execution"}
+		res.err = si.ExecuteScript(item.File, "rootscript", item.DoNotWait, cfg.TrackBackgroundProcesses)
+		if res.err == nil {
+			if item.DoNotWait && cfg.TrackBackgroundProcesses {
+				res.daemonBg = 1
+				logger.Info("✅ Root script started in background: %s", item.Name)
+			} else if item.DoNotWait {
+				logger.Info("✅ Root script started (fire-and-forget): %s", item.Name)
+			} else {
+				logger.Info("✅ Root script executed: %s", item.Name)
+			}
+		}
+		return res
+	case "rootfile":
+		res := userlandResult{operation: "file placement"}
+		res.err = si.PlaceFile(item.File, "rootfile")
+		if res.err == nil {
+			logger.Info("✅ Root file placed: %s", item.Name)
+		}
+		return res
+	default:
+		logger.Info("⚠️  Unknown item type: %s for %s", item.Type, item.Name)
+		return userlandResult{operation: "dispatch"}
+	}
 }
 
 // processUserScript handles userscript execution via agent IPC

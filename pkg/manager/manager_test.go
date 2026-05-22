@@ -2,6 +2,7 @@ package manager
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,19 +27,22 @@ func (f *fakeDownloader) DownloadMultipleWithCleanup(items []config.Item, max in
 	return out
 }
 
-// fake installer tracks calls
-type fakeInstaller struct{ scripts int }
+// fake installer tracks calls. Uses atomic ops so parallel_group batches
+// don't race the script counter.
+type fakeInstaller struct{ scripts int32 }
+
+func (f *fakeInstaller) callCount() int { return int(atomic.LoadInt32(&f.scripts)) }
 
 func (f *fakeInstaller) InstallPackage(pkgPath, target string) error { return nil }
 func (f *fakeInstaller) ExecuteScript(scriptPath, scriptType string, doNotWait bool, track bool) error {
-	f.scripts++
+	atomic.AddInt32(&f.scripts, 1)
 	if scriptPath == "fail.sh" {
 		return errors.New("boom")
 	}
 	return nil
 }
 func (f *fakeInstaller) ExecuteScriptForPreflight(scriptPath, scriptType string, doNotWait bool, track bool) error {
-	f.scripts++
+	atomic.AddInt32(&f.scripts, 1)
 	if scriptPath == "fail.sh" {
 		return errors.New("boom")
 	}
@@ -66,7 +70,7 @@ func TestManagerProcessItems_FailPolicy(t *testing.T) {
 	if err := m.ProcessItems(items, "userland"); err == nil {
 		t.Fatalf("expected error due to last item policy")
 	}
-	if inst.scripts < 2 {
+	if inst.callCount() < 2 {
 		t.Fatalf("expected at least two script executions")
 	}
 }

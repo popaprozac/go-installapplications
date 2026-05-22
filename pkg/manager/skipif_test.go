@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -8,22 +9,25 @@ import (
 	"github.com/go-installapplications/pkg/utils"
 )
 
-// countingInstaller records each call so we can prove skipped items are not executed.
+// countingInstaller records each call so we can prove skipped items are not
+// executed. Counters are atomic so parallel_group tests don't race.
 type countingInstaller struct {
-	scripts  int
-	packages int
-	files    int
+	scripts  atomic.Int32
+	packages atomic.Int32
+	files    atomic.Int32
 }
 
-func (c *countingInstaller) InstallPackage(_, _ string) error                { c.packages++; return nil }
-func (c *countingInstaller) ExecuteScript(_, _ string, _ bool, _ bool) error { c.scripts++; return nil }
+func (c *countingInstaller) callCount() int { return int(c.scripts.Load()) }
+
+func (c *countingInstaller) InstallPackage(_, _ string) error                   { c.packages.Add(1); return nil }
+func (c *countingInstaller) ExecuteScript(_, _ string, _ bool, _ bool) error    { c.scripts.Add(1); return nil }
 func (c *countingInstaller) ExecuteScriptForPreflight(_, _ string, _ bool, _ bool) error {
-	c.scripts++
+	c.scripts.Add(1)
 	return nil
 }
-func (c *countingInstaller) PlaceFile(_, _ string) error                       { c.files++; return nil }
+func (c *countingInstaller) PlaceFile(_, _ string) error                          { c.files.Add(1); return nil }
 func (c *countingInstaller) WaitForBackgroundProcesses(_ time.Duration) []error { return nil }
-func (c *countingInstaller) GetBackgroundProcessCount() int                    { return 0 }
+func (c *countingInstaller) GetBackgroundProcessCount() int                      { return 0 }
 
 // TestManager_SkipIfFiltersBeforeExecution proves that items matching the
 // current architecture's skip_if alias never reach the installer. This is the
@@ -54,8 +58,8 @@ func TestManager_SkipIfFiltersBeforeExecution(t *testing.T) {
 	if err := m.ProcessItems(items, "userland"); err != nil {
 		t.Fatalf("ProcessItems: %v", err)
 	}
-	if inst.scripts != 1 {
-		t.Fatalf("expected exactly one script (skip filter dropped one), got %d", inst.scripts)
+	if inst.callCount() != 1 {
+		t.Fatalf("expected exactly one script (skip filter dropped one), got %d", inst.callCount())
 	}
 }
 
@@ -76,7 +80,7 @@ func TestManager_FailableTreatsFailureAsContinue(t *testing.T) {
 	if err := m.ProcessItems(items, "userland"); err != nil {
 		t.Fatalf("failable should swallow errors: %v", err)
 	}
-	if inst.scripts != 2 {
-		t.Fatalf("expected both scripts to run, got %d", inst.scripts)
+	if inst.callCount() != 2 {
+		t.Fatalf("expected both scripts to run, got %d", inst.callCount())
 	}
 }

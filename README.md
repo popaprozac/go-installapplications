@@ -289,6 +289,7 @@ When using `--jsonurl` or for reference when creating embedded bootstrap:
 | **fail_policy** | `failable_execution` | Error handling strategy | See table above |
 | **skip_if** | `""` | Skip based on architecture | `"intel"`, `"arm64"`, `"x86_64"`, `"apple_silicon"` |
 | **hash** | `""` | SHA256 hash for verification | `"sha256-abc123..."` |
+| **parallel_group** | `""` | Group label for concurrent execution (Swift parity). Consecutive items sharing the same non-empty value form a single parallel batch; identity is positional, so `alpha`/`alpha`/`beta`/`alpha` produces three batches. Empty value runs sequentially. | `"setup-batch-1"` |
 
 #### Phase Execution Order
 

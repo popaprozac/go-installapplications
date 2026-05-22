@@ -2,12 +2,22 @@ package manager
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/go-installapplications/pkg/config"
 	"github.com/go-installapplications/pkg/download"
 	"github.com/go-installapplications/pkg/installer"
 	"github.com/go-installapplications/pkg/utils"
 )
+
+// itemResult carries the outcome of a single item execution so callers can
+// apply fail_policy uniformly across sequential and parallel paths.
+type itemResult struct {
+	item        config.Item
+	err         error
+	operation   string // for handleItemError ("script execution", "package installation", ...)
+	startedBg   bool   // true if a tracked background process was started
+}
 
 // Manager orchestrates the three-phase installation process
 type Manager struct {
@@ -106,51 +116,68 @@ func (m *Manager) ProcessItems(items []config.Item, phaseName string) error {
 
 	var backgroundProcessCount int
 
-	for i, item := range successfulItems {
-		m.logger.Debug("Processing item %d/%d: %s (%s)", i+1, len(successfulItems), item.Name, item.Type)
-
-		// Log donotwait behavior if enabled
-		if item.DoNotWait {
-			if m.config.TrackBackgroundProcesses {
-				m.logger.Debug("Item marked as donotwait with background tracking")
-			} else {
-				m.logger.Debug("Item marked as donotwait with fire-and-forget")
+	// Preflight is a single-item phase with bespoke control flow; route it
+	// directly through the preflight handler regardless of parallel_group.
+	if phaseName == "preflight" {
+		for _, item := range successfulItems {
+			if item.Type == "rootscript" {
+				return m.handlePreflightScript(item)
 			}
 		}
+	}
 
-		switch item.Type {
-		case "package":
-			if err := m.handlePackageInstallation(item); err != nil {
-				return err
-			}
-
-		case "rootscript":
-			if phaseName == "preflight" {
-				return m.handlePreflightScript(item)
-			} else {
-				if err := m.handleRootScript(item, &backgroundProcessCount); err != nil {
-					return err
+	batches := config.BatchByParallelGroup(successfulItems)
+	for batchIdx, batch := range batches {
+		if len(batch) == 1 {
+			item := batch[0]
+			m.logger.Debug("Processing item %d/%d (batch %d): %s (%s)", batchIdx+1, len(batches), batchIdx+1, item.Name, item.Type)
+			if item.DoNotWait {
+				if m.config.TrackBackgroundProcesses {
+					m.logger.Debug("Item marked as donotwait with background tracking")
+				} else {
+					m.logger.Debug("Item marked as donotwait with fire-and-forget")
 				}
 			}
-
-		case "userscript":
-			if err := m.handleUserScript(item, &backgroundProcessCount); err != nil {
-				return err
+			res := m.runItem(item, phaseName)
+			if res.startedBg {
+				backgroundProcessCount++
 			}
-
-		case "rootfile":
-			if err := m.handleFilePlacement(item, "rootfile"); err != nil {
-				return err
+			if res.err != nil {
+				if m.handleItemError(item, res.err, res.operation) {
+					return fmt.Errorf("%s failed in %s phase for %s: %w", res.operation, phaseName, item.Name, res.err)
+				}
 			}
-
-		case "userfile":
-			if err := m.handleFilePlacement(item, "userfile"); err != nil {
-				return err
-			}
-
-		default:
-			m.logger.Info("⚠️  Unknown item type: %s for %s", item.Type, item.Name)
+			continue
 		}
+
+		// Parallel batch — every item in the batch shares the same non-empty group.
+		groupName := batch[0].ParallelGroup
+		m.logger.Info("🔀 parallel_group %q: running %d items concurrently", groupName, len(batch))
+
+		results := make([]itemResult, len(batch))
+		var wg sync.WaitGroup
+		for i := range batch {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				results[i] = m.runItem(batch[i], phaseName)
+			}(i)
+		}
+		wg.Wait()
+
+		// Apply fail_policy to each result in the batch's declared order so
+		// log output remains deterministic.
+		for _, res := range results {
+			if res.startedBg {
+				backgroundProcessCount++
+			}
+			if res.err != nil {
+				if m.handleItemError(res.item, res.err, res.operation) {
+					return fmt.Errorf("parallel_group %q: %s failed for %s: %w", groupName, res.operation, res.item.Name, res.err)
+				}
+			}
+		}
+		m.logger.Info("✅ parallel_group %q complete", groupName)
 	}
 
 	// Wait for background processes started in THIS PHASE ONLY
@@ -181,97 +208,92 @@ func (m *Manager) ProcessItems(items []config.Item, phaseName string) error {
 	return nil
 }
 
-// handleRootScript handles root script execution (non-preflight)
-func (m *Manager) handleRootScript(item config.Item, backgroundProcessCount *int) error {
-	// Normal script execution for non-preflight phases
+// runItem executes one item and returns the outcome WITHOUT consulting
+// fail_policy — the caller (which may have been parallel or sequential)
+// decides what to do with the error. This is the unifying primitive used by
+// both the singleton and parallel-batch paths.
+func (m *Manager) runItem(item config.Item, phaseName string) itemResult {
+	switch item.Type {
+	case "package":
+		return m.runPackage(item)
+	case "rootscript":
+		// Preflight is handled separately at the ProcessItems level.
+		_ = phaseName
+		return m.runRootScript(item)
+	case "userscript":
+		return m.runUserScript(item)
+	case "rootfile":
+		return m.runFilePlacement(item, "rootfile")
+	case "userfile":
+		return m.runFilePlacement(item, "userfile")
+	default:
+		m.logger.Info("⚠️  Unknown item type: %s for %s", item.Type, item.Name)
+		return itemResult{item: item, operation: "dispatch"}
+	}
+}
+
+func (m *Manager) runRootScript(item config.Item) itemResult {
 	err := m.installer.ExecuteScript(item.File, "rootscript", item.DoNotWait, m.config.TrackBackgroundProcesses)
-	if err != nil {
-		// Normal error handling for non-preflight phases
-		if shouldStopOnError := m.handleItemError(item, err, "script execution"); shouldStopOnError {
-			return fmt.Errorf("failed to execute root script %s: %w", item.Name, err)
-		}
-		return nil // Continue with next item
-	}
-
-	// Log success based on execution mode
-	if item.DoNotWait {
-		if m.config.TrackBackgroundProcesses {
-			*backgroundProcessCount++
-			m.logger.Info("✅ Root script started in background: %s", item.Name)
+	res := itemResult{item: item, operation: "script execution", err: err}
+	if err == nil {
+		if item.DoNotWait {
+			if m.config.TrackBackgroundProcesses {
+				res.startedBg = true
+				m.logger.Info("✅ Root script started in background: %s", item.Name)
+			} else {
+				m.logger.Info("✅ Root script started (fire-and-forget): %s", item.Name)
+			}
 		} else {
-			m.logger.Info("✅ Root script started (fire-and-forget): %s", item.Name)
+			m.logger.Info("✅ Root script executed: %s", item.Name)
 		}
-	} else {
-		m.logger.Info("✅ Root script executed: %s", item.Name)
 	}
-	return nil
+	return res
 }
 
-// handleFilePlacement handles file placement for both root and user files
-func (m *Manager) handleFilePlacement(item config.Item, fileType string) error {
+func (m *Manager) runFilePlacement(item config.Item, fileType string) itemResult {
 	err := m.installer.PlaceFile(item.File, fileType)
-	if err != nil {
-		if shouldStopOnError := m.handleItemError(item, err, "file placement"); shouldStopOnError {
-			return fmt.Errorf("failed to place %s %s: %w", fileType, item.Name, err)
-		}
-		return nil // Continue with next item
+	res := itemResult{item: item, operation: "file placement", err: err}
+	if err == nil {
+		m.logger.Info("✅ %s placed: %s", fileType, item.Name)
 	}
-	m.logger.Info("✅ %s placed: %s", fileType, item.Name)
-	return nil
+	return res
 }
 
-// handleUserScript handles user script execution
-func (m *Manager) handleUserScript(item config.Item, backgroundProcessCount *int) error {
+func (m *Manager) runUserScript(item config.Item) itemResult {
 	err := m.installer.ExecuteScript(item.File, "userscript", item.DoNotWait, m.config.TrackBackgroundProcesses)
-	if err != nil {
-		if shouldStopOnError := m.handleItemError(item, err, "script execution"); shouldStopOnError {
-			return fmt.Errorf("failed to execute user script %s: %w", item.Name, err)
-		}
-		return nil // Continue with next item
-	}
-
-	// Log success based on execution mode
-	if item.DoNotWait {
-		if m.config.TrackBackgroundProcesses {
-			*backgroundProcessCount++
-			m.logger.Info("✅ User script started in background: %s", item.Name)
+	res := itemResult{item: item, operation: "script execution", err: err}
+	if err == nil {
+		if item.DoNotWait {
+			if m.config.TrackBackgroundProcesses {
+				res.startedBg = true
+				m.logger.Info("✅ User script started in background: %s", item.Name)
+			} else {
+				m.logger.Info("✅ User script started (fire-and-forget): %s", item.Name)
+			}
 		} else {
-			m.logger.Info("✅ User script started (fire-and-forget): %s", item.Name)
+			m.logger.Info("✅ User script executed: %s", item.Name)
 		}
-	} else {
-		m.logger.Info("✅ User script executed: %s", item.Name)
 	}
-	return nil
+	return res
 }
 
-// handlePackageInstallation installs a package. Skips if already installed (version >= required) unless pkg_required is true.
-func (m *Manager) handlePackageInstallation(item config.Item) error {
-	// When pkg_required is false (default): skip if already installed with satisfied version (loose >=).
-	// When pkg_required is true: always install, no skip based on receipt.
+func (m *Manager) runPackage(item config.Item) itemResult {
 	if !item.PkgRequired && item.PackageID != "" {
 		alreadySatisfied, err := utils.CheckPackageReceipt(item.PackageID, item.Version, m.logger)
 		if err != nil {
-			if shouldStopOnError := m.handleItemError(item, err, "package receipt check"); shouldStopOnError {
-				return fmt.Errorf("failed to check package receipt for %s: %w", item.Name, err)
-			}
-			return nil
+			return itemResult{item: item, operation: "package receipt check", err: err}
 		}
 		if alreadySatisfied {
 			m.logger.Info("⏭️  Skipping %s - already installed.", item.Name)
-			return nil
+			return itemResult{item: item, operation: "package installation"}
 		}
 	}
-
 	err := m.installer.InstallPackage(item.File, "/")
-	if err != nil {
-		if shouldStopOnError := m.handleItemError(item, err, "package installation"); shouldStopOnError {
-			return fmt.Errorf("failed to install package %s: %w", item.Name, err)
-		}
-		return nil // Continue with next item
+	res := itemResult{item: item, operation: "package installation", err: err}
+	if err == nil {
+		m.logger.Info("✅ Package installed: %s", item.Name)
 	}
-	m.logger.Info("✅ Package installed: %s", item.Name)
-	// On success, we can mark the file as preserved for now; cleanup-all will remove it later if enabled
-	return nil
+	return res
 }
 
 // handlePreflightScript handles the special case of preflight rootscript execution

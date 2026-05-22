@@ -39,24 +39,31 @@ type Item struct {
 
 	// Failure handling policy from Swift version
 	FailPolicy string `json:"fail_policy,omitempty"` // "failable", "failable_execution", "failure_is_not_an_option"
+
+	// ParallelGroup batches consecutive items sharing the same non-empty value
+	// into a single parallel batch (Swift parity). Identity is positional —
+	// alpha/alpha/beta/alpha forms three batches: {alpha,alpha}, {beta}, {alpha}.
+	// Items with an empty value run sequentially as singleton batches.
+	ParallelGroup string `json:"parallel_group,omitempty"`
 }
 
 // itemRaw is used for JSON unmarshaling so both "pkg_required" and "required" set PkgRequired.
 type itemRaw struct {
-	File        string `json:"file"`
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	URL         string `json:"url,omitempty"`
-	Hash        string `json:"hash,omitempty"`
-	PackageID   string `json:"packageid,omitempty"`
-	Version     string `json:"version,omitempty"`
-	DoNotWait   bool   `json:"donotwait,omitempty"`
-	PkgRequired bool   `json:"pkg_required,omitempty"`
-	Required    bool   `json:"required,omitempty"`
-	SkipIf      string `json:"skip_if,omitempty"`
-	Retries     int    `json:"retries,omitempty"`
-	RetryWait   int    `json:"retrywait,omitempty"`
-	FailPolicy  string `json:"fail_policy,omitempty"`
+	File          string `json:"file"`
+	Name          string `json:"name"`
+	Type          string `json:"type"`
+	URL           string `json:"url,omitempty"`
+	Hash          string `json:"hash,omitempty"`
+	PackageID     string `json:"packageid,omitempty"`
+	Version       string `json:"version,omitempty"`
+	DoNotWait     bool   `json:"donotwait,omitempty"`
+	PkgRequired   bool   `json:"pkg_required,omitempty"`
+	Required      bool   `json:"required,omitempty"`
+	SkipIf        string `json:"skip_if,omitempty"`
+	Retries       int    `json:"retries,omitempty"`
+	RetryWait     int    `json:"retrywait,omitempty"`
+	FailPolicy    string `json:"fail_policy,omitempty"`
+	ParallelGroup string `json:"parallel_group,omitempty"`
 }
 
 // UnmarshalJSON accepts both "pkg_required" and "required" for PkgRequired.
@@ -78,7 +85,52 @@ func (i *Item) UnmarshalJSON(data []byte) error {
 	i.Retries = raw.Retries
 	i.RetryWait = raw.RetryWait
 	i.FailPolicy = raw.FailPolicy
+	i.ParallelGroup = raw.ParallelGroup
 	return nil
+}
+
+// BatchByParallelGroup partitions items into batches where consecutive items
+// sharing the same non-empty ParallelGroup form a single batch (run in
+// parallel by the caller). Items with an empty ParallelGroup form singleton
+// batches and run sequentially. Identity is positional: the run
+// alpha/alpha/beta/alpha returns three batches — {alpha,alpha}, {beta}, {alpha}.
+//
+// This is a pure helper; it does not validate item types or phases. Callers
+// should still validate (e.g. preflight allows only a single rootscript and
+// should ignore parallel_group).
+func BatchByParallelGroup(items []Item) [][]Item {
+	if len(items) == 0 {
+		return nil
+	}
+	var batches [][]Item
+	var current []Item
+	currentKey := ""
+	for _, it := range items {
+		if it.ParallelGroup == "" {
+			// flush current group, then add a singleton
+			if len(current) > 0 {
+				batches = append(batches, current)
+				current = nil
+				currentKey = ""
+			}
+			batches = append(batches, []Item{it})
+			continue
+		}
+		if it.ParallelGroup == currentKey {
+			current = append(current, it)
+			continue
+		}
+		// new group starts — flush previous if any
+		if len(current) > 0 {
+			batches = append(batches, current)
+		}
+		current = []Item{it}
+		currentKey = it.ParallelGroup
+	}
+	if len(current) > 0 {
+		batches = append(batches, current)
+	}
+	return batches
 }
 
 // LoadBootstrap loads bootstrap JSON from a file (validates structure)

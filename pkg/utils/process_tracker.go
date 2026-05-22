@@ -108,12 +108,16 @@ func (pt *ProcessTracker) WaitForCompletion(timeout time.Duration) []error {
 		case <-timeoutChan:
 			pt.logger.Error("Timeout waiting for background processes (%d/%d completed)", completed, len(processes))
 
-			// Kill remaining processes
+			// Kill remaining processes. Don't read Cmd.ProcessState here — the
+			// per-process wait goroutine writes it concurrently and would race.
+			// Kill on an already-exited process is a no-op and only returns an
+			// "already finished" error we ignore.
 			for _, bgProcess := range processes {
-				if bgProcess.Cmd.ProcessState == nil || !bgProcess.Cmd.ProcessState.Exited() {
-					pt.logger.Error("Killing timed-out background process: %s", bgProcess.Name)
-					bgProcess.Cmd.Process.Kill()
+				if bgProcess.Cmd.Process == nil {
+					continue
 				}
+				pt.logger.Error("Killing timed-out background process: %s", bgProcess.Name)
+				_ = bgProcess.Cmd.Process.Kill()
 			}
 
 			errorMutex.Lock()
