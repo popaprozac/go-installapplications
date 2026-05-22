@@ -319,35 +319,14 @@ func (m *Manager) Cleanup(cleanupType string) {
 // handleItemError processes errors according to the item's fail policy
 // Returns true if the phase should stop, false if it should continue
 func (m *Manager) handleItemError(item config.Item, err error, operation string) bool {
+	stop := item.ShouldStopOnError(operation)
 	policy := item.GetEffectiveFailPolicy()
-
-	switch policy {
-	case "failure_is_not_an_option":
-		// Stop entire phase on any failure (default behavior)
+	if stop {
 		m.logger.Error("❌ %s failed for %s (fail_policy: %s): %v", operation, item.Name, policy, err)
-		return true
-
-	case "failable":
-		// Log error but continue with phase (all failures are ignored)
+	} else {
 		m.logger.Info("⚠️  %s failed for %s (fail_policy: %s): %v - continuing", operation, item.Name, policy, err)
-		return false
-
-	case "failable_execution":
-		// Allow script execution failures, but not download/install failures
-		if operation == "script execution" {
-			m.logger.Info("⚠️  %s failed for %s (fail_policy: %s): %v - continuing", operation, item.Name, policy, err)
-			return false
-		} else {
-			// Download/install failures still stop the phase
-			m.logger.Error("❌ %s failed for %s (fail_policy: %s): %v", operation, item.Name, policy, err)
-			return true
-		}
-
-	default:
-		// Should never happen due to validation, but be safe
-		m.logger.Error("❌ Unknown fail_policy '%s' for %s: %v", policy, item.Name, err)
-		return true
 	}
+	return stop
 }
 
 // validatePhaseRestrictions validates that items are appropriate for the given phase

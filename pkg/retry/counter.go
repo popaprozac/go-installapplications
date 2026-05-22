@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 )
 
-const (
-	RetryCounterFile = "/var/tmp/go-installapplications/.retry-state"
-	MaxRetries       = 3
-)
+// retryCounterFile is the location of the persisted retry state. Declared as
+// a package-level var (not a const) so tests can redirect it to a temp path.
+var retryCounterFile = "/var/tmp/go-installapplications/.retry-state"
+
+const MaxRetries = 3
 
 // RetryState tracks daemon retry attempts
 type RetryState struct {
@@ -49,7 +51,7 @@ func IncrementRetryCount(reason string) error {
 
 // ClearRetryCount removes retry state (successful completion)
 func ClearRetryCount() error {
-	return os.Remove(RetryCounterFile)
+	return os.Remove(retryCounterFile)
 }
 
 // ShouldRetry checks if we should attempt retry
@@ -76,7 +78,7 @@ func GetRetryInfo() string {
 
 // readRetryState reads retry state from file
 func readRetryState() (*RetryState, error) {
-	data, err := os.ReadFile(RetryCounterFile)
+	data, err := os.ReadFile(retryCounterFile)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +93,8 @@ func readRetryState() (*RetryState, error) {
 
 // saveRetryState saves retry state to file
 func saveRetryState(state *RetryState) error {
-	// Ensure directory exists
-	if err := os.MkdirAll("/var/tmp/go-installapplications", 0755); err != nil {
+	// Ensure directory of the counter file exists (derive from the var so tests work)
+	if err := os.MkdirAll(filepath.Dir(retryCounterFile), 0755); err != nil {
 		return err
 	}
 
@@ -101,5 +103,5 @@ func saveRetryState(state *RetryState) error {
 		return err
 	}
 
-	return os.WriteFile(RetryCounterFile, data, 0644)
+	return os.WriteFile(retryCounterFile, data, 0644)
 }

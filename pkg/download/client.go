@@ -120,9 +120,11 @@ func (c *Client) DownloadFileWithRetries(url, filepath, expectedHash string, ret
 	return nil
 }
 
-// Keep old method for backward compatibility
+// DownloadFile downloads a single file using the client's configured retry defaults
+// (set via SetRetryDefaults). Passing 0 for retries/retryWait lets DownloadFileWithRetries
+// pick up the configured defaults instead of hard-coded values.
 func (c *Client) DownloadFile(url, filepath, expectedHash string) error {
-	return c.DownloadFileWithRetries(url, filepath, expectedHash, 3, 5)
+	return c.DownloadFileWithRetries(url, filepath, expectedHash, 0, 0)
 }
 
 // VerifyFileHash checks if a file matches the expected SHA256 hash

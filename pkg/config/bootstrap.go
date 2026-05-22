@@ -194,3 +194,19 @@ func (item *Item) GetEffectiveFailPolicy() string {
 	}
 	return item.FailPolicy
 }
+
+// ShouldStopOnError applies the item's fail policy to decide whether a phase should abort.
+// operation should be one of "script execution", "package installation",
+// "file placement", "download", or "package receipt check".
+// Returns true to abort the phase, false to keep going.
+func (item *Item) ShouldStopOnError(operation string) bool {
+	switch item.GetEffectiveFailPolicy() {
+	case "failable":
+		return false
+	case "failable_execution":
+		// Tolerate script execution failures only; download/install/file errors still abort.
+		return operation != "script execution"
+	default: // failure_is_not_an_option and any unknown value
+		return true
+	}
+}

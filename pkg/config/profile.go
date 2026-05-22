@@ -229,9 +229,39 @@ func (c *Config) applySettingsMap(settings map[string]interface{}) error {
 		}
 	}
 
+	if val, exists := settings["CleanupOnSuccess"]; exists {
+		if b, ok := val.(bool); ok {
+			c.CleanupOnSuccess = b
+		}
+	}
+
 	if val, exists := settings["KeepFailedFiles"]; exists {
 		if b, ok := val.(bool); ok {
 			c.KeepFailedFiles = b
+		}
+	}
+
+	if val, exists := settings["LogFilePath"]; exists {
+		if str, ok := val.(string); ok && str != "" {
+			c.LogFilePath = str
+		}
+	}
+
+	if val, exists := settings["RetainLogFiles"]; exists {
+		if b, ok := val.(bool); ok {
+			c.RetainLogFiles = b
+		}
+	}
+
+	if val, exists := settings["WithPreflight"]; exists {
+		if b, ok := val.(bool); ok {
+			c.WithPreflight = b
+		}
+	}
+
+	if val, exists := settings["NoRestartOnError"]; exists {
+		if b, ok := val.(bool); ok {
+			c.NoRestartOnError = b
 		}
 	}
 

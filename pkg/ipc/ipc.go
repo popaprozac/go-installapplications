@@ -8,7 +8,14 @@ import (
 
 // SocketDir is the directory where agent sockets are created.
 // We use /var/tmp to avoid user-home coupling and keep paths stable across contexts.
-const SocketDir = "/var/tmp/go-installapplications"
+// Declared as a var so tests can redirect it without root access.
+var SocketDir = "/var/tmp/go-installapplications"
+
+// SocketDirVar returns the current SocketDir value (helper for tests).
+func SocketDirVar() string { return SocketDir }
+
+// SetSocketDir overrides the socket directory location. Intended for tests.
+func SetSocketDir(path string) { SocketDir = path }
 
 // GetAgentSocketPathForUID returns the Unix domain socket path for a given user UID
 func GetAgentSocketPathForUID(uid string) string {

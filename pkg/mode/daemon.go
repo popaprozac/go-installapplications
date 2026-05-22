@@ -224,94 +224,145 @@ func changeFileOwnershipToConsoleUser(filePath string, logger *utils.Logger) err
 	return nil
 }
 
-// processUserlandPhase handles the complete userland phase including downloads and execution
+// processUserlandPhase handles the complete userland phase including downloads and execution.
+// Filters items by skip_if BEFORE downloading and applies each item's fail_policy
+// to per-item errors so userland behaves consistently with the manager-driven phases.
 func processUserlandPhase(userlandItems []config.Item, downloader *download.Client, systemInstaller *installer.SystemInstaller, cfg *config.Config, logger *utils.Logger) error {
+	// Filter items by skip_if criteria (parity with manager.ProcessItems)
+	var filtered []config.Item
+	for _, item := range userlandItems {
+		if utils.ShouldSkipItem(item.SkipIf, logger) {
+			logger.Info("⏭️  Skipping %s: matches skip_if criteria '%s'", item.Name, item.SkipIf)
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	if len(filtered) == 0 {
+		logger.Info("No userland items to process after skip_if filtering")
+		return nil
+	}
+
 	// Pre-download userland items
-	logger.Info("Pre-downloading %d userland items", len(userlandItems))
+	logger.Info("Pre-downloading %d userland items", len(filtered))
 	cleanupFailed := cfg.CleanupOnFailure && !cfg.KeepFailedFiles
 	if !cleanupFailed && cfg.CleanupOnFailure {
 		logger.Debug("KeepFailedFiles=true: preserving failed downloads for troubleshooting")
 	}
-	results := downloader.DownloadMultipleWithCleanup(userlandItems, cfg.DownloadMaxConcurrency, cleanupFailed)
+	results := downloader.DownloadMultipleWithCleanup(filtered, cfg.DownloadMaxConcurrency, cleanupFailed)
 
-	var downloadErrors []error
-	var successCount int
-
+	// Map download outcomes back to items so we can honor fail_policy for download errors
+	downloadErrByName := map[string]error{}
+	successItems := make([]config.Item, 0, len(filtered))
 	for _, result := range results {
 		if result.Error != nil {
 			logger.Error("Failed to download userland item '%s': %v", result.Item.Name, result.Error)
-			downloadErrors = append(downloadErrors, result.Error)
-		} else {
-			logger.Debug("Pre-downloaded userland item: %s", result.Item.Name)
-			successCount++
+			if result.Item.ShouldStopOnError("download") {
+				return fmt.Errorf("userland download failed for %s (fail_policy enforced): %w", result.Item.Name, result.Error)
+			}
+			logger.Info("⚠️  Download failure tolerated by fail_policy for %s; skipping item", result.Item.Name)
+			downloadErrByName[result.Item.Name] = result.Error
+			continue
+		}
+		logger.Debug("Pre-downloaded userland item: %s", result.Item.Name)
+		successItems = append(successItems, result.Item)
+	}
+
+	if len(successItems) == 0 {
+		logger.Info("No userland items left to process after download phase")
+		return nil
+	}
+
+	// Wait for agent socket only if there are user-context items to delegate
+	needsAgent := false
+	for _, item := range successItems {
+		if item.Type == "userscript" || item.Type == "userfile" {
+			needsAgent = true
+			break
 		}
 	}
-
-	if len(downloadErrors) > 0 {
-		return fmt.Errorf("failed to download %d userland items: %d download errors", len(downloadErrors), len(downloadErrors))
+	var sockPath string
+	if needsAgent {
+		logger.Info("Waiting for GUI login and agent readiness to process userland phase")
+		p, err := waitForAgentSocket(logger, cfg.WaitForAgentTimeout)
+		if err != nil {
+			return fmt.Errorf("agent readiness wait failed: %w", err)
+		}
+		sockPath = p
+	} else {
+		logger.Debug("No user-context items in userland; skipping wait for agent socket")
 	}
 
-	logger.Info("Successfully pre-downloaded all %d userland items", successCount)
-
-	// Wait for agent socket
-	logger.Info("Waiting for GUI login and agent readiness to process userland phase")
-	sockPath, err := waitForAgentSocket(logger, cfg.WaitForAgentTimeout)
-	if err != nil {
-		return fmt.Errorf("agent readiness wait failed: %w", err)
-	}
-
-	// Process userland items
+	// Process userland items in declared order
 	logger.Info("Starting ordered userland processing")
-	successCount = 0
 	var backgroundProcessCount int
 
-	for i, item := range userlandItems {
-		logger.Info("Userland item %d/%d: %s (%s)", i+1, len(userlandItems), item.Name, item.Type)
+	for i, item := range successItems {
+		logger.Info("Userland item %d/%d: %s (%s)", i+1, len(successItems), item.Name, item.Type)
+		var (
+			opName string
+			opErr  error
+		)
 		switch item.Type {
 		case "userscript":
-			if err := processUserScript(item, sockPath, cfg, logger); err != nil {
-				return fmt.Errorf("userscript failed for %s: %w", item.Name, err)
-			}
-			if item.DoNotWait {
-				backgroundProcessCount++
-				logger.Info("✅ User script delegated (background): %s", item.Name)
-			} else {
-				logger.Info("✅ User script completed: %s", item.Name)
+			opName, opErr = "script execution", processUserScript(item, sockPath, cfg, logger)
+			if opErr == nil {
+				if item.DoNotWait {
+					backgroundProcessCount++
+					logger.Info("✅ User script delegated (background): %s", item.Name)
+				} else {
+					logger.Info("✅ User script completed: %s", item.Name)
+				}
 			}
 		case "userfile":
-			if err := processUserFile(item, sockPath, cfg, logger); err != nil {
-				return fmt.Errorf("userfile failed for %s: %w", item.Name, err)
+			opName, opErr = "file placement", processUserFile(item, sockPath, cfg, logger)
+			if opErr == nil {
+				logger.Info("✅ User file placed: %s", item.Name)
 			}
-			logger.Info("✅ User file placed: %s", item.Name)
 		case "package":
-			if err := processPackage(item, systemInstaller, logger); err != nil {
-				return fmt.Errorf("package failed for %s: %w", item.Name, err)
+			opName, opErr = "package installation", processPackage(item, systemInstaller, logger)
+			if opErr == nil {
+				logger.Info("✅ Package installed: %s", item.Name)
 			}
-			logger.Info("✅ Package installed: %s", item.Name)
 		case "rootscript":
-			if err := systemInstaller.ExecuteScript(item.File, "rootscript", item.DoNotWait, cfg.TrackBackgroundProcesses); err != nil {
-				return fmt.Errorf("rootscript failed for %s: %w", item.Name, err)
-			}
-			if item.DoNotWait {
-				backgroundProcessCount++
-				logger.Info("✅ Root script started in background: %s", item.Name)
-			} else {
-				logger.Info("✅ Root script executed: %s", item.Name)
+			opName, opErr = "script execution", systemInstaller.ExecuteScript(item.File, "rootscript", item.DoNotWait, cfg.TrackBackgroundProcesses)
+			if opErr == nil {
+				if item.DoNotWait {
+					backgroundProcessCount++
+					logger.Info("✅ Root script started in background: %s", item.Name)
+				} else {
+					logger.Info("✅ Root script executed: %s", item.Name)
+				}
 			}
 		case "rootfile":
-			if err := systemInstaller.PlaceFile(item.File, "rootfile"); err != nil {
-				return fmt.Errorf("rootfile failed for %s: %w", item.Name, err)
+			opName, opErr = "file placement", systemInstaller.PlaceFile(item.File, "rootfile")
+			if opErr == nil {
+				logger.Info("✅ Root file placed: %s", item.Name)
 			}
-			logger.Info("✅ Root file placed: %s", item.Name)
 		default:
 			logger.Info("⚠️  Unknown item type: %s for %s", item.Type, item.Name)
+			continue
 		}
-		successCount++
+
+		if opErr != nil {
+			policy := item.GetEffectiveFailPolicy()
+			if item.ShouldStopOnError(opName) {
+				logger.Error("❌ %s failed for %s (fail_policy: %s): %v", opName, item.Name, policy, opErr)
+				if needsAgent && sockPath != "" {
+					if _, err := callAgent(logger, sockPath, ipc.RPCRequest{Command: "Shutdown"}, cfg.AgentRequestTimeout); err != nil {
+						logger.Debug("Agent shutdown request failed (non-fatal): %v", err)
+					}
+				}
+				return fmt.Errorf("userland %s failed for %s: %w", opName, item.Name, opErr)
+			}
+			logger.Info("⚠️  %s failed for %s (fail_policy: %s): %v - continuing", opName, item.Name, policy, opErr)
+		}
 	}
 
-	// Wait for background processes
+	// Wait for background processes started by the daemon during userland.
+	// Note: agent-spawned user scripts with donotwait=true are tracked locally inside the
+	// agent's process tracker and are not waited on across IPC.
 	if backgroundProcessCount > 0 && cfg.TrackBackgroundProcesses {
-		logger.Info("Waiting for %d background processes to complete", backgroundProcessCount)
+		logger.Info("Waiting for %d daemon-side background processes to complete", backgroundProcessCount)
 		errors := systemInstaller.WaitForBackgroundProcesses(cfg.BackgroundTimeout)
 		if len(errors) > 0 {
 			logger.Error("Background process errors in userland:")
@@ -326,10 +377,15 @@ func processUserlandPhase(userlandItems []config.Item, downloader *download.Clie
 	logger.Info("Userland processing completed")
 
 	// Request agent shutdown
-	if _, err := callAgent(logger, sockPath, ipc.RPCRequest{Command: "Shutdown"}, cfg.AgentRequestTimeout); err != nil {
-		logger.Debug("Agent shutdown request failed (non-fatal): %v", err)
+	if needsAgent && sockPath != "" {
+		if _, err := callAgent(logger, sockPath, ipc.RPCRequest{Command: "Shutdown"}, cfg.AgentRequestTimeout); err != nil {
+			logger.Debug("Agent shutdown request failed (non-fatal): %v", err)
+		}
 	}
 
+	if len(downloadErrByName) > 0 {
+		logger.Info("Userland phase completed with %d tolerated download failures", len(downloadErrByName))
+	}
 	return nil
 }
 

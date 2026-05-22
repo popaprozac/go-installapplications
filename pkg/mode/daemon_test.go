@@ -27,6 +27,9 @@ func TestGetBootstrap_FollowRedirects(t *testing.T) {
 	cfg := config.NewConfig()
 	cfg.JSONURL = redirect.URL
 	cfg.InstallPath = t.TempDir()
+	// Keep the test fast: DownloadFile now honors configured retry defaults.
+	cfg.MaxRetries = 1
+	cfg.RetryDelay = 0
 
 	logger := utils.NewLogger(false, false)
 
@@ -55,6 +58,8 @@ func TestGetBootstrap_SkipValidation(t *testing.T) {
 	cfg.JSONURL = srv.URL
 	cfg.InstallPath = t.TempDir()
 	cfg.FollowRedirects = true
+	cfg.MaxRetries = 1
+	cfg.RetryDelay = 0
 	logger := utils.NewLogger(false, false)
 
 	// validation on => expect error

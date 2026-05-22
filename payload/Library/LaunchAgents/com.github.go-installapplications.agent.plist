@@ -18,6 +18,16 @@
         <key>RunAtLoad</key>
         <true/>
 
+        <!-- Relaunch on unexpected crash; do NOT relaunch after a clean (Shutdown-triggered) exit -->
+        <key>KeepAlive</key>
+        <dict>
+            <key>SuccessfulExit</key>
+            <false/>
+        </dict>
+
+        <key>ThrottleInterval</key>
+        <integer>10</integer>
+
         <key>StandardOutPath</key>
         <string>/var/log/go-installapplications/go-installapplications.agent.log</string>
 

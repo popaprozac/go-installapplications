@@ -1,6 +1,8 @@
 package mode
 
 import (
+	"sync"
+
 	"github.com/go-installapplications/pkg/config"
 	"github.com/go-installapplications/pkg/installer"
 	"github.com/go-installapplications/pkg/ipc"
@@ -11,15 +13,17 @@ import (
 func RunAgent(cfg *config.Config, logger *utils.Logger) {
 	logger.Info("Starting agent mode")
 
-	// Start IPC server to receive requests from daemon for user-context actions
+	// Start IPC server to receive requests from daemon for user-context actions.
+	// shutdownOnce guards close(done) so repeated Shutdown commands cannot panic.
 	done := make(chan struct{})
+	var shutdownOnce sync.Once
 	_, err := startAgentIPCServer(logger, func(req ipc.RPCRequest) ipc.RPCResponse {
 		switch req.Command {
 		case "Ping":
 			return ipc.RPCResponse{ID: req.ID, OK: true}
 		case "Shutdown":
-			// Graceful shutdown
-			go func() { close(done) }()
+			// Graceful shutdown — idempotent across repeated Shutdown calls
+			shutdownOnce.Do(func() { close(done) })
 			return ipc.RPCResponse{ID: req.ID, OK: true}
 		case "RunUserScript":
 			installer := installer.NewSystemInstaller(cfg.DryRun, logger, true)

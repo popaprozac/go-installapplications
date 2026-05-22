@@ -53,15 +53,18 @@ func (se *ScriptExecutor) detectScriptInterpreter(scriptPath string) (string, er
 			interpreter := strings.TrimSpace(firstLine[2:]) // Remove #!
 			se.logger.Verbose("Detected interpreter from shebang: %s", interpreter)
 
-			// Extract just the interpreter name for logging
+			// Extract just the interpreter name for logging.
+			// Handle the common `#!/usr/bin/env <interp>` idiom by inspecting
+			// the second word when the first resolves to "env".
 			parts := strings.Fields(interpreter)
 			if len(parts) > 0 {
 				interpreterName := filepath.Base(parts[0])
+				if interpreterName == "env" && len(parts) > 1 {
+					interpreterName = filepath.Base(parts[1])
+				}
 				switch {
 				case strings.Contains(interpreterName, "bash"):
 					return "bash", nil
-				case strings.Contains(interpreterName, "sh"):
-					return "shell", nil
 				case strings.Contains(interpreterName, "python"):
 					return "python", nil
 				case strings.Contains(interpreterName, "ruby"):
@@ -70,6 +73,9 @@ func (se *ScriptExecutor) detectScriptInterpreter(scriptPath string) (string, er
 					return "perl", nil
 				case strings.Contains(interpreterName, "node"):
 					return "node.js", nil
+				case strings.Contains(interpreterName, "sh"):
+					// Match "sh" last so "bash" / "csh" / "zsh" get more specific labels first.
+					return "shell", nil
 				default:
 					return interpreterName, nil
 				}
