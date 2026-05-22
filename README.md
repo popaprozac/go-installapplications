@@ -269,7 +269,7 @@ When using `--jsonurl` or for reference when creating embedded bootstrap:
 | **ResetRetries** | `false` | Clear retry state before running | All | `--reset-retries` |
 | **ProfileDomain** | `com.github.go-installapplications` | macOS preference domain | All | `--profile-domain` |
 | **LogFilePath** | `""` | Force logs to file | All | `--log-file` |
-| **RetainLogFiles** | `false` | Retain log files from previous runs | All | `--retain-log-files` |
+| **RetainLogFiles** | `false` (standalone) / `true` (daemon, agent) | Retain log files from previous runs. Daemon and agent default to retain so launchd restarts don't wipe failure history; pass `--retain-log-files=false` to opt back into wiping. | All | `--retain-log-files` |
 | **FollowRedirects** | `false` | Follow HTTP redirects | All | `--follow-redirects` |
 | **SkipValidation** | `false` | Skip bootstrap.json validation | All | `--skip-validation` |
 | **WithPreflight** | `false` | Enable preflight phase in standalone mode | Standalone | `--with-preflight` |

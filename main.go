@@ -258,9 +258,16 @@ func main() {
 			fmt.Printf("Logging to: %s (%s)\n", logFilePath, mode)
 		}
 	} else {
-		// Daemon/agent modes: use console logging by default; optionally tee to a file
+		// Daemon/agent modes: use console logging by default; optionally tee to a file.
+		// Daemon and agent are both subject to launchd-managed restarts (KeepAlive),
+		// so by default we never wipe the log file — restarts must preserve the
+		// failure history that explains why they happened. Opt back into the
+		// legacy behavior by passing --retain-log-files=false (or setting
+		// RetainLogFiles=false in the mobileconfig).
 		if cfg.LogFilePath != "" {
-			if !cfg.RetainLogFiles {
+			// Only wipe when the user explicitly opted out of retention.
+			wipe := flagsSet["retain-log-files"] && !cfg.RetainLogFiles
+			if wipe {
 				if err := os.Remove(cfg.LogFilePath); err != nil && !os.IsNotExist(err) {
 					fmt.Printf("Warning: Failed to delete log file: %v\n", err)
 				}
@@ -279,7 +286,7 @@ func main() {
 				logger = utils.NewLogger(cfg.Debug, cfg.Verbose)
 			} else {
 				mode := "appending"
-				if !cfg.RetainLogFiles {
+				if wipe {
 					mode = "fresh"
 				}
 				fmt.Printf("Logging to: %s (and console, %s)\n", cfg.LogFilePath, mode)
